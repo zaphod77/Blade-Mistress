@@ -29,7 +29,10 @@ enum
     MESS_ADMIN_ACTIVATE,
     MESS_ADMIN_TAKE_CONTROL,
     MESS_ADMIN_RELEASE_CONTROL,
-    MESS_ADMIN_MAX
+	MESS_BEASTMASTER_ACTIVATE,
+	MESS_PLAYER_CONTROL,
+	MESS_PLAYER_RECALL,
+	MESS_ADMIN_MAX
 };
 
 enum
@@ -164,6 +167,7 @@ enum
     NWMESS_GROUND_EFFECT,
     NWMESS_MONSTER_SPECIAL_ATTACK,
     NWMESS_MONSTER_CHANGE_FORM,
+	NWMESS_START_TAME,
    NWMESS_MAX
 
 };
@@ -255,7 +259,7 @@ struct MessAvatarStats : public MessBase
     unsigned char bottomR, bottomG, bottomB; // hair
     unsigned short imageFlags;
     char name[32];
-    char physical, magical, creative;
+    char physical, magical, creative, beast;
     long cLevel, cash;
     char age;
 };
@@ -420,7 +424,7 @@ struct MessInventoryChange : public MessBase
 
 //   char isPlayerInfo;
    long ptr;
-    unsigned char amount;
+    unsigned long amount;
     unsigned char srcListType;
     unsigned char dstListType;
 };
@@ -430,7 +434,7 @@ struct MessInventoryTransferRequest : public MessBase
 {
    MessInventoryTransferRequest(void) {idTag = NWMESS_INVENTORY_TRANSFER_REQUEST; };
 
-   unsigned char amount;
+   long amount;
    long ptr, partner;
     unsigned char playerListType;
    char isPlayerInfo;
@@ -554,12 +558,21 @@ struct MessBladeDesc : public MessBase
 //********************************
 struct MessAvatarAttack : public MessBase
 {
-   MessAvatarAttack(void) {idTag = NWMESS_AVATAR_ATTACK; };
+	MessAvatarAttack(void) { idTag = NWMESS_AVATAR_ATTACK; };
 
-    int avatarID;
-    unsigned long mobID;
-    long damage; // -1 means miss
-    long health, healthMax;  // along for the ride to the client
+	int avatarID;
+	unsigned long mobID;
+	long damage; // -1 means miss
+	long health, healthMax;  // along for the ride to the client
+};
+struct MessStartTame : public MessBase
+{
+	MessStartTame(void) { idTag = NWMESS_START_TAME; };
+
+	int avatarID;
+	unsigned long mobID;
+	long damage; // -1 means miss
+	long health, healthMax;  // along for the ride to the client
 };
 
 //********************************
@@ -623,7 +636,7 @@ struct MessChangeMap : public MessBase
     char oldType, newType;
     int sizeX, sizeY;
     long dungeonID;
-    unsigned char realmID;
+    unsigned char realmID=0;
     unsigned int flags;
 };
 

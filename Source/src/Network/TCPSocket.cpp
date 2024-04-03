@@ -13,7 +13,7 @@
 
 	// System Headers.
 #include <winsock2.h>
-
+#include <ws2tcpip.h>
 LPHOSTENT	lpHostEntLast;
 char lastIPName[64] = "";
 
@@ -102,7 +102,6 @@ bool TCPSocket::startup(int recvSize, NETCALLBACK func, void * context)
 			// a temp sock address.
 		struct sockaddr_in	addr;
 		int					addrSize = sizeof(addr);
-
 			// get the other side address.
 		retval = getpeername(m_socket, (SOCKADDR *)&addr, &addrSize);
 
