@@ -87,6 +87,7 @@ BBOSMonster *ArmyArchMage::MakeSpecialMonster(ArmyMember *curMember)
 		monster->r = 100;
 		monster->g = 100;
 		monster->b = 255;
+		monster->tamingcounter = 1000;	// no taming a camp
 
 		return monster;
 	}
@@ -105,8 +106,8 @@ BBOSMonster *ArmyArchMage::MakeSpecialMonster(ArmyMember *curMember)
 		monster->defense            = 80;
 		monster->dropAmount         = 6;
 
-		monster->r = 100;
-		monster->g = 100;
+		monster->r = 255; // lag stoppign change
+		monster->g = 255; // lag stoppign change
 		monster->b = 255;
 
 		return monster;

@@ -5,6 +5,7 @@
 #include ".\network\NetWorldMessages.h"
 #include "inventory.h"
 #include "totemData.h"
+#include "staffData.h"
 #include "sharedSpace.h"
 #include "QuestSystem.h"
 
@@ -36,8 +37,9 @@ enum
     ACCOUNT_TYPE_MODERATOR = 2,
     ACCOUNT_TYPE_TRIAL_MODERATOR = 3,
     ACCOUNT_TYPE_HIDDEN_ADMIN = 4,
-    ACCOUNT_TYPE_BANNED = 10,
-    ACCOUNT_TYPE_MAX
+	ACCOUNT_TYPE_BANNED = 10,
+	ACCOUNT_TYPE_SUPERBANNED = 20,
+	ACCOUNT_TYPE_MAX
 };
 
 enum
@@ -48,11 +50,15 @@ enum
 };
 
 const float CLEVEL_VAL_DODGE        = 0.6f;
-const float CLEVEL_VAL_MAGIC        = 0.1f;
+const float CLEVEL_VAL_MAGIC		= 0.1f;
+const float CLEVEL_VAL_GEOMANCY		= 0.2f;
 const float CLEVEL_VAL_SHATTER		= 0.05f;
 const float CLEVEL_VAL_SMITH        = 0.03f;
 const float CLEVEL_VAL_BOMB         = 0.1f;
 const float CLEVEL_VAL_SMITH_EXPERT = 0.2f;
+const float CLEVEL_VAL_TAMING		= 1.0f; // skill has a low cap, so safe to give a full level
+const float CLEVEL_VAL_PET_MASTERY	= 1.0f; // take sages to level up, so it's worth a c level
+const float CLEVEL_VAL_PET_ENERGY	= 0.6f; // be nicer to beast masters.
 
 const int QUEST_SLOTS = 6;
 
@@ -124,7 +130,7 @@ struct BBOSCharacterInfo
     unsigned char bottomR, bottomG, bottomB; // hair
     Inventory *inventory, *workbench, *skills, *wield;
 
-    long physical, magical, creative;
+    long physical, magical, creative, beast;
     long healthMax; // max = physical * 10 + (long)cLevel;
     long health;
     float cLevel, oldCLevel;
@@ -132,7 +138,7 @@ struct BBOSCharacterInfo
     int lastX, lastY, spawnX, spawnY;
     unsigned short imageFlags;
     long lifeTime; // in 5 minute increments
-
+	long MonsterFeedTime=0;
     LongTime lastSavedTime;
 
     PetDragonInfo petDragonInfo[2];
@@ -145,7 +151,13 @@ struct BBOSCharacterInfo
     char witchQuestName[64];
 
     int age;
-
+	char Monster_uniqueName[32]="NO MONSTER";
+	unsigned char Monster_r, Monster_g, Monster_b, Monster_a=0;
+	float Monster_sizeCoeff, Monster_magicResistance=0.0f;
+	
+	int Monster_type, Monster_subType=0;
+	int Monster_healAmountPerSecond=0;
+	long Monster_health, Monster_maxHealth, Monster_damageDone, Monster_toHit, Monster_defense=0;
 
 };
 /*
@@ -171,17 +183,18 @@ public:
     BBOSAvatar(void);
     virtual ~BBOSAvatar();
     void Tick(SharedSpace *ss);
-    int  LoadAccount(char *name, char *pass, int isNew, int justLoad = FALSE);
-    void SaveAccount(void);
+	int  LoadAccount(char *name, char *pass, int isNew, int justLoad = FALSE, int loggedUID=-1);
+	void SaveAccount(void);
     void LoadContacts(FILE *fp, float version);
     void SaveContacts(FILE *fp);
     void BuildStatsMessage(MessAvatarStats *mStats);
     void GiveInfoFor(int x, int y, SharedSpace *ss);
-    void UpdateClient(SharedSpace *ss, int clearAll = FALSE);
+	void UpdateClient(SharedSpace *ss, int clearAll = FALSE, int delay = 0);
     void IntroduceMyself(SharedSpace *ss, unsigned short special = 0);
-    int  GetDodgeLevel(void);
-    void MakeCharacterValid(int i);
-
+	int  GetDodgeLevel(void);
+	int  GetPetEnergyLevel(void);
+	void MakeCharacterValid(int i);
+	
     void Combine(SharedSpace *ss);
     int  DetectSize(char *string, int type);
     void DetectIngotTypes(InvBlade *ib, int &type1, int &type2);
@@ -205,10 +218,14 @@ public:
     void AbortSecureTrading(SharedSpace *ss);
     void StateNoAgreement(SharedSpace *ss);
     void AssertGuildStatus(SharedSpace *ss, int full = FALSE, int socketTarget = 0);
-    void UseStaffOnMonster(SharedSpace *ss, InvStaff *iStaff, BBOSMonster *curMonster);
-    void DoBladestaffExtra(SharedSpace *ss, InvBlade *ib, 
-                                              long damValue, BBOSMonster *targetMonster);
-    
+	void UseStaffOnMonster(SharedSpace *ss, InvStaff *iStaff, BBOSMonster *curMonster);
+	void UseStaffOnPlayer(SharedSpace *ss, InvStaff *iStaff, BBOSAvatar *curAvatar); // pvp
+	void AttackPlayer(SharedSpace *ss, BBOSAvatar *curAvatar);                       // pvp
+	void DoBladestaffExtra(SharedSpace *ss, InvBlade *ib,
+		long damValue, BBOSMonster *targetMonster);
+	void DoBladestaffExtraOnPlayer(SharedSpace *ss, InvBlade *ib,
+		long damValue, BBOSAvatar *targetPlayer);
+
     long  InventoryValue(void);
     float BestSwordRating(void);
 
@@ -231,15 +248,19 @@ public:
 
     int PhysicalStat(void);
     int MagicalStat (void);
-    int CreativeStat(void);
+	int CreativeStat(void);
+	int BeastStat(void);
 
     void AddMastery( SharedSpace *ss );
-    int GetMasteryForType( int type );
+	int GetMasteryForType(int type);
+	int GetTamingLevel(void);
+	int GetTamingExp(void);
 
     void SetUniqueId(int id) {uniqueId = id;}
     int GetUniqueId() {return uniqueId;}
 
     int socketIndex;
+	int followMode; // TRUE for beastmaster with following monster.
     int curCharacterIndex;
     char name[NUM_OF_CHARS_FOR_USERNAME];
     char pass[NUM_OF_CHARS_FOR_PASSWORD];
@@ -256,7 +277,8 @@ public:
 
     char updateMap[MAP_SIZE_WIDTH*MAP_SIZE_HEIGHT];	 // turn this into a bit field and SAVE MEMORY!
 
-    BBOSMonster *curTarget;
+	BBOSMonster *curTarget;
+	BBOSAvatar *curPlayerTarget;
 
     char lastTellName[32];
 
@@ -265,7 +287,7 @@ public:
 
     TotemEffects totemEffects;
 
-    int accountType, isInvisible, kickOff, isInvulnerable, hasPaid;
+    int accountType, isInvisible, kickOff, isInvulnerable, hasPaid,isTeleporting;
 
     int timeOnCounter, kickMeOffNow;
 
@@ -293,11 +315,14 @@ public:
     int uniqueId;
 
     bool bHasLoaded;
-
+	bool PVPEnabled;
     // For player status
     int status;
     char status_text[145];
-
+	// anti bot stuff
+	int EvilBotter;
+	int SkillCellX, SkillCellY,SameCellCount,BotTPCount;
+	char CorrectAnswer;
 };
 
 #endif

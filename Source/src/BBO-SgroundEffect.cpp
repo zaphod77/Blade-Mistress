@@ -19,7 +19,7 @@
 BBOSGroundEffect::BBOSGroundEffect(void) : 
                         BBOSMob(SMOB_GROUND_EFFECT,"GROUNDEFFECT")
 {
-	type = amount = 0;
+	type = amount = killme = 0;
 	r = g = b = 255;
 }
 

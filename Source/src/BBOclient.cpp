@@ -62,7 +62,7 @@ SimpleGrass *simpleGrass[4];
 
 float bombShakeVal = 0;
 
-int curMapType, playerIsAdmin;
+int curMapType, playerIsAdmin, playerIsBeastmaster,BeastTagAlong;
 long lastDungeonID = 0, lastRealmID = -1;
 
 char monsterSoundFileNames[NUM_OF_MONSTERS][32] =
@@ -124,7 +124,7 @@ char weatherSoundFileNames[3][32] =
 BBOClient::BBOClient(void)
 {
 	DrawPleaseWaitScreen();
-
+	
 	LoadOptions();
 
 	lineOverlayPtr = NULL;
@@ -155,9 +155,10 @@ BBOClient::BBOClient(void)
 
 	curMapType = SPACE_GROUND;
 	isEditingDungeon = isInSpecialDungeon = drunkenWalk = FALSE;
-	needToName       = FALSE;
-	playerIsAdmin    = FALSE;
-
+	needToName			= FALSE;
+	playerIsAdmin		= FALSE;
+	playerIsBeastmaster = FALSE;
+	BeastTagAlong		= FALSE;
 	controlledMonsterID = -1;
 
 	dungeon = NULL;
@@ -273,8 +274,18 @@ BBOClient::BBOClient(void)
 
 	sackMesh = new PumaMesh();
 	sackMesh->LoadFromASC(puma->m_pd3dDevice, "dat\\sack.ase");
-	sackMesh->LoadTexture(puma->m_pd3dDevice,	"dat\\sack.png");
+	sackMesh->LoadTexture(puma->m_pd3dDevice, "dat\\sack.png");
 	sackMesh->Scale(puma->m_pd3dDevice, 0.0035f, 0.0035f, 0.0035f);
+
+	bombMesh = new PumaMesh();
+	bombMesh->LoadFromASC(puma->m_pd3dDevice, "dat\\bomb.ase");
+	bombMesh->LoadTexture(puma->m_pd3dDevice, "dat\\bomb.png");
+	bombMesh->Scale(puma->m_pd3dDevice, 0.003f, 0.003f, 0.003f);
+
+	bigbombMesh = new PumaMesh();
+	bigbombMesh->LoadFromASC(puma->m_pd3dDevice, "dat\\bomb.ase");
+	bigbombMesh->LoadTexture(puma->m_pd3dDevice, "dat\\bomb.png");
+	bigbombMesh->Scale(puma->m_pd3dDevice, 0.007f, 0.007f, 0.007f);
 
 	greatTreeMesh = new PumaMesh();
 	greatTreeMesh->LoadFromASC(puma->m_pd3dDevice,"dat\\tree1.ase");
@@ -346,16 +357,25 @@ BBOClient::BBOClient(void)
 	chestMesh[1]->LoadTexture(puma->m_pd3dDevice,	"dat\\chest.png");
 
 	DrawPleaseWaitScreen();
-
+		
 	char tempText[1024];
-	for (int i = 0; i < MAGIC_MAX; ++i)
+	for (int i = 0; i <= MAGIC_MAX; ++i)  // load one last token model for ctf
 	{
 		tokenMesh[i] = new PumaMesh();
 //		tokenMesh[i]->LoadFromASC(puma->m_pd3dDevice, "dat\\token.ase");
 //		tokenMesh[i]->Scale(puma->m_pd3dDevice, 1/300.0f, 1/300.0f, 1/300.0f);
 //		tokenMesh[i]->SaveCompressed(puma->m_pd3dDevice,"dat\\token.MEC");
-		tokenMesh[i]->LoadCompressed(puma->m_pd3dDevice,"dat\\token.MEC");
-		sprintf(tempText,"dat\\token_%s.png",magicNameList[i]);
+		int tokencrc= tokenMesh[i]->LoadCompressed(puma->m_pd3dDevice, "dat\\token.MEC");
+		if ((tokencrc != 2083971190) && (cheats==0))
+			abort();
+		if (i < MAGIC_MAX)
+		{
+			sprintf(tempText, "dat\\token_%s.png", magicNameList[i]);
+		}
+		else
+		{
+			sprintf(tempText, "dat\\token_ctf.png");
+		}
 		tokenMesh[i]->LoadTexture(puma->m_pd3dDevice,	tempText);
 	}
 	curCamAngle = realCamAngle = (float)NormalizeAngle(D3DX_PI/2);
@@ -391,7 +411,7 @@ BBOClient::BBOClient(void)
 	
 	DrawPleaseWaitScreen();
 
-	magicPlaceParticle = new Particle2Type(300, "dat\\flare-white.png", 0.1f);
+	magicPlaceParticle = new Particle2Type(600, "dat\\flare-white.png", 0.1f);
 	magicPlaceParticle->lowAngle = 0;
 	magicPlaceParticle->highAngle = 0;
 	magicPlaceParticle->lowAzimuth = D3DX_PI/2;
@@ -572,7 +592,7 @@ BBOClient::BBOClient(void)
 	curMapSizeY = MAP_SIZE_HEIGHT;
 
 	isLightning = lightningCount = 0;
-
+	lastmacrotime = timeGetTime();
 
 }
 
@@ -666,7 +686,7 @@ BBOClient::~BBOClient()
 		delete dungeon;
 
 }
-
+D3DXCOLOR merchantParticleColor = D3DCOLOR_ARGB(55, 0, 255, 255);
 D3DXCOLOR trainerParticleColor  = D3DCOLOR_ARGB(55, 0, 255, 0);
 D3DXCOLOR townmageParticleColor = D3DCOLOR_ARGB(55, 255, 0, 0);
 
@@ -674,7 +694,8 @@ D3DXCOLOR townmageParticleColor = D3DCOLOR_ARGB(55, 255, 0, 0);
 void BBOClient::Tick(void)
 {
 //	char tempText[1024];
-
+	int particlecounter = 0;
+	int particlefactor = 0;
 	bladeTrail->StartAddingQuads();
 
 //	DebugOutput("St BBOClient Tick\n");
@@ -724,7 +745,7 @@ void BBOClient::Tick(void)
 		BBOMob *curMob = (BBOMob *) monsterList->First();
 		while (curMob)
 		{
-			if (curMob->mobID == controlledMonsterID)
+			if ((curMob->mobID == controlledMonsterID) && (!BeastTagAlong))
 			{
 				playerPosForClient = curMob->spacePoint.location;
 
@@ -761,38 +782,36 @@ void BBOClient::Tick(void)
 	BBOMob *curMob = (BBOMob *) monsterList->First();
 	while (curMob)
 	{
-		if (SMOB_PARTICLE_STREAM == curMob->type && 
-			 curMob->particleStreamAge < timeGetTime())
+		if (SMOB_PARTICLE_STREAM == curMob->type &&
+			curMob->particleStreamAge < timeGetTime())
 		{
 			monsterList->Remove(curMob);
 			delete curMob;
-			curMob = (BBOMob *) monsterList->First();
+			curMob = (BBOMob *)monsterList->First();
 		}
-		else if (curMob->dying && curMob->animCounter > 30)
+		else if ((curMob->dying) && (curMob->mobID == controlledMonsterID) && (controlledMonsterID != -1))
 		{
-			D3DXVECTOR3 pos = curMob->spacePoint.location;
-			pos.y += 1;
-			flareParticle->SetEmissionPoint(pos);
-			flareParticle->Emit(20, D3DCOLOR_ARGB(155, 255, 0, 0));
-
-			monsterList->Remove(curMob);
-			if (curMob->cellSlot > -1)
-			{
-				ground->ReleaseSlot(curMob->cellX, curMob->cellY, curMob->cellSlot);
-				flockSet->FreePoint(curMob->flockPointIndex, curMob);
-			}
-			if (SMOB_MONSTER == curMob->type && curMob->animCounter < 13)
-			{
-				sprintf(curText,"The %s is destroyed! It drops something.", curMob->name);
-				DisplayTextInfo(curText);
-			}
-
-			if (curMob->mobID == controlledMonsterID)
-				controlledMonsterID = -1;
-
-			delete curMob;
-			curMob = (BBOMob *) monsterList->First();
+			controlledMonsterID = -1;
 		}
+		else if ((curMob->dying) && curMob->animCounter > 30)
+		{
+				D3DXVECTOR3 pos = curMob->spacePoint.location;
+				pos.y += 1;
+				flareParticle->SetEmissionPoint(pos);
+				flareParticle->Emit(20, D3DCOLOR_ARGB(155, 255, 0, 0));
+
+				monsterList->Remove(curMob);
+				if (curMob->cellSlot > -1)
+				{
+					ground->ReleaseSlot(curMob->cellX, curMob->cellY, curMob->cellSlot);
+					flockSet->FreePoint(curMob->flockPointIndex, curMob);
+				}
+
+
+				delete curMob;
+				curMob = (BBOMob *)monsterList->First();
+		}
+	
 		else if (curMob->beyondRange > 300 && curMob != playerAvatar)
 		{
 			monsterList->Remove(curMob);
@@ -908,8 +927,8 @@ void BBOClient::Tick(void)
 			{
 				curMob->moving = TRUE;
 				float suggestedSpeed = Distance(fp->x, fp->y, fp->targetX, fp->targetY);
-				suggestedSpeed *= 0.12f / 5.0f;
-				if (0.12f < suggestedSpeed)
+				suggestedSpeed *= 0.24f / 5.0f;
+				if (0.24f < suggestedSpeed)
 					suggestedSpeed = 0.12f;
 				if (suggestedSpeed < 0.06f ) 
 					suggestedSpeed = 0.06f ;
@@ -947,31 +966,36 @@ void BBOClient::Tick(void)
 		}
 		else if (SMOB_TRAINER == curMob->type)
 		{
-			curMob->spacePoint.location.y = HeightAtPoint(curMob->spacePoint.location.x, curMob->spacePoint.location.z);
+			particlecounter = lastTick;
+			particlefactor = 3;
+			if ((particlecounter % particlefactor) == 0)
+			{
+				curMob->spacePoint.location.y = HeightAtPoint(curMob->spacePoint.location.x, curMob->spacePoint.location.z);
 
-//			DebugOutput("-");
+				//			DebugOutput("-");
 
-//			DebugOutput("1");
+				//			DebugOutput("1");
 
-			pos = curMob->spacePoint.location;
-//			DebugOutput("2");
+				pos = curMob->spacePoint.location;
+				//			DebugOutput("2");
 
-			pos.x += rnd(-0.2f,0.2f);
-			pos.z += rnd(-0.2f,0.2f);
-//			pos.x = 660;
-//			pos.y += 1;
-//			pos.z = 550;
-//			DebugOutput("3");
+				pos.x += rnd(-0.2f, 0.2f);
+				pos.z += rnd(-0.2f, 0.2f);
+				//			pos.x = 660;
+				//			pos.y += 1;
+				//			pos.z = 550;
+				//			DebugOutput("3");
 
-			magicPlaceParticle->SetEmissionPoint(pos);
+				magicPlaceParticle->SetEmissionPoint(pos);
 
-//			sprintf(tempText,"%ld %f %f %f\n", magicPlaceParticle, pos.x, pos.y, pos.z); 
-//			DebugOutput(tempText);
+				//			sprintf(tempText,"%ld %f %f %f\n", magicPlaceParticle, pos.x, pos.y, pos.z); 
+				//			DebugOutput(tempText);
 
-//			DebugOutput("4");
+				//			DebugOutput("4");
 
 
-			magicPlaceParticle->Emit(1, trainerParticleColor);
+				magicPlaceParticle->Emit(1, trainerParticleColor);
+			}
 		}
 		else if (SMOB_TOWNMAGE == curMob->type)
 		{
@@ -997,7 +1021,18 @@ void BBOClient::Tick(void)
 		}
 		else if (SMOB_TRADER == curMob->type)
 		{
-			curMob->spacePoint.location.y = HeightAtPoint(curMob->spacePoint.location.x, curMob->spacePoint.location.z);
+			particlecounter = lastTick;
+			particlefactor = 3;
+			if ((particlecounter % particlefactor) == 0)
+			{
+				curMob->spacePoint.location.y = HeightAtPoint(curMob->spacePoint.location.x, curMob->spacePoint.location.z);
+				pos = curMob->spacePoint.location;
+
+				pos.x += rnd(-0.2f, 0.2f);
+				pos.z += rnd(-0.2f, 0.2f);
+				magicPlaceParticle->SetEmissionPoint(pos);
+				magicPlaceParticle->Emit(1, merchantParticleColor);
+			}
 		}
 		else if (SMOB_TOWER == curMob->type && curMob->towerHasMistress)
 		{
@@ -1101,7 +1136,7 @@ void BBOClient::Draw(void)
 		BBOMob *curMob = (BBOMob *) monsterList->First();
 		while (curMob)
 		{
-			if (curMob->mobID == controlledMonsterID)
+			if ((curMob->mobID == controlledMonsterID) && (!BeastTagAlong))
 			{
 				playerPosForClient = curMob->spacePoint.location;
 				curMob = (BBOMob *) monsterList->Last();
@@ -1288,7 +1323,7 @@ void BBOClient::Draw(void)
 		BBOMob *curMob = (BBOMob *) monsterList->First();
 		while (curMob)
 		{
-			if (curMob->mobID == controlledMonsterID)
+			if ((curMob->mobID == controlledMonsterID) && (!BeastTagAlong))
 			{
 				centerCellX = curMob->cellX;
 				centerCellY = curMob->cellY;
@@ -1301,7 +1336,8 @@ void BBOClient::Draw(void)
 	D3DXVECTOR3 pos;
 
 	// put particles in town centers
-	for (int g = 0; g < NUM_OF_TOWNS && SPACE_GROUND == curMapType; ++g)
+	
+	for (int g = 0; g < NUM_OF_TOWNS && ((SPACE_GROUND == curMapType)&&(lastRealmID<1)); ++g) // only print them in real normal realm
 	{
 		if (abs(centerCellX - townList[g].x) < 5 && 
 			 abs(centerCellY - townList[g].y) < 5)
@@ -1375,11 +1411,24 @@ void BBOClient::Draw(void)
 
 				puma->m_pd3dDevice->SetRenderState(D3DRS_FOGENABLE, TRUE);
 				// Set the fog color.
-				puma->m_pd3dDevice->SetRenderState(D3DRS_FOGCOLOR, D3DCOLOR_ARGB(255, 150,150,190));
+				puma->m_pd3dDevice->SetRenderState(D3DRS_FOGCOLOR, D3DCOLOR_ARGB(255, 150, 150, 190));
 				// Set fog parameters.
 				puma->m_pd3dDevice->SetRenderState(D3DRS_FOGTABLEMODE, D3DFOG_LINEAR);
 				puma->m_pd3dDevice->SetRenderState(D3DRS_FOGSTART, *(DWORD *)(&Start));
-				puma->m_pd3dDevice->SetRenderState(D3DRS_FOGEND,   *(DWORD *)(&End));
+				puma->m_pd3dDevice->SetRenderState(D3DRS_FOGEND, *(DWORD *)(&End));
+				break;
+
+			case REALM_ID_TEST:
+				Start = 30.0f;
+				End = 70.0f;
+
+				puma->m_pd3dDevice->SetRenderState(D3DRS_FOGENABLE, TRUE);
+				// Set the fog color.
+				puma->m_pd3dDevice->SetRenderState(D3DRS_FOGCOLOR, D3DCOLOR_ARGB(255, 150, 150, 190));
+				// Set fog parameters.
+				puma->m_pd3dDevice->SetRenderState(D3DRS_FOGTABLEMODE, D3DFOG_LINEAR);
+				puma->m_pd3dDevice->SetRenderState(D3DRS_FOGSTART, *(DWORD *)(&Start));
+				puma->m_pd3dDevice->SetRenderState(D3DRS_FOGEND, *(DWORD *)(&End));
 				break;
 
 			}
@@ -1850,9 +1899,13 @@ void BBOClient::Draw(void)
 							}
 							else
 								standinMesh->Draw(puma->m_pd3dDevice);
-							if (curMob->animCounter/2 >= 
-								 curMob->monsterAnims[MONSTER_STATE_ATTACK][curMob->monsterType][curMob->monsterSubType]->numOfFrames)
+							if (curMob->animCounter / 2 >=
+								curMob->monsterAnims[MONSTER_STATE_ATTACK][curMob->monsterType][curMob->monsterSubType]->numOfFrames)
+							{
 								curMob->attacking = FALSE;
+								curMob->animCounter = 0;
+
+							}
 						}
 						else if (curMob->attackingSpecial)
 						{
@@ -1953,10 +2006,19 @@ void BBOClient::Draw(void)
 				{
 					sackMesh->Draw(puma->m_pd3dDevice);
 				}
+				else if (SMOB_BOMB == curMob->type)
+				{
+					bombMesh->Draw(puma->m_pd3dDevice);
+				}
 				else if (SMOB_TOKEN == curMob->type)
 				{
-					tokenMesh[curMob->mobID]->Draw(puma->m_pd3dDevice);
-					curMob->spacePoint.angle += 0.02f;
+				tokenMesh[curMob->mobID]->Draw(puma->m_pd3dDevice);
+				curMob->spacePoint.angle += 0.02f;
+				}
+				else if (SMOB_CTF_TOKEN == curMob->type)
+				{
+				tokenMesh[MAGIC_MAX]->Draw(puma->m_pd3dDevice);
+				curMob->spacePoint.angle += 0.02f;
 				}
 				else if (SMOB_TREE == curMob->type)
 				{
@@ -2145,7 +2207,7 @@ void BBOClient::Draw(void)
 					DWORD color = D3DCOLOR_ARGB(255, 255, 255, 255);
 					if (curMob == selectedMOB && ((flashCounter/6)&1))
 						color = D3DCOLOR_ARGB(255, 80, 255, 80);
-					else if (controlledMonsterID == curMob->mobID)
+					else if ((controlledMonsterID == curMob->mobID) && (!BeastTagAlong))
 						color = D3DCOLOR_ARGB(255, 255, 0, 80);
 
 					float barPos = -1;
@@ -2617,7 +2679,7 @@ void BBOClient::HandleMessage(char *messData, int dataSize)
 
 //					tempMob->spacePoint.location.y = HeightAtPoint(tempMob->spacePoint.location.x, tempMob->spacePoint.location.z,NULL);
 					found = TRUE;
-					if (tempMob->avatarID == playerAvatarID && -1 == controlledMonsterID)
+					if ((tempMob->avatarID == playerAvatarID) && (BeastTagAlong||(-1 == controlledMonsterID)))
 					{
 						ground->m_CameraPos   = tempMob->spacePoint.location;
 						ground->m_CameraAngle = 0;
@@ -2678,7 +2740,7 @@ void BBOClient::HandleMessage(char *messData, int dataSize)
 
 
 		tempMob->avatarID = messAvAppearPtr->avatarID;
-		if (tempMob->avatarID == playerAvatarID && -1 == controlledMonsterID)
+		if ((tempMob->avatarID == playerAvatarID) && (BeastTagAlong || (-1 == controlledMonsterID)))
 		{
 			playerAvatar = tempMob;
 			requestInfo.type = MESS_INVENTORY_PLAYER;
@@ -2867,7 +2929,7 @@ void BBOClient::HandleMessage(char *messData, int dataSize)
 							fp->targetY = ground->GetZForPoint(tempMob->cellY) + slotY;
 						}
 					}
-					if (controlledMonsterID == tempMob->mobID)
+					if ((controlledMonsterID == tempMob->mobID)&& !BeastTagAlong)
 					{
 						ground->m_CameraPos   = tempMob->spacePoint.location;
 						ground->m_CameraAngle = 0;
@@ -2953,7 +3015,11 @@ void BBOClient::HandleMessage(char *messData, int dataSize)
 		}
 		else if (SMOB_CHEST == messMobAppearPtr->type)
 		{
-			sprintf(tempMob->name,"");
+			sprintf(tempMob->name, "");
+		}
+		else if (SMOB_BOMB == messMobAppearPtr->type)
+		{
+			sprintf(tempMob->name, "");
 		}
 		else if (SMOB_WARP_POINT == messMobAppearPtr->type)
 		{
@@ -2970,7 +3036,23 @@ void BBOClient::HandleMessage(char *messData, int dataSize)
 		}
 		else if (SMOB_WITCH == messMobAppearPtr->type)
 		{
-			sprintf(tempMob->name,"Witch");
+			sprintf(tempMob->name, "Witch");
+		}
+		else if (SMOB_BOMB == messMobAppearPtr->type)
+		{
+			sprintf(tempMob->name, "Bomb");
+		}
+		else if (SMOB_MALL_DIRECTOR == messMobAppearPtr->type)
+		{
+			sprintf(tempMob->name, "Mall Director");
+		}
+		else if (SMOB_PLAYERMERCHANT == messMobAppearPtr->type)
+		{
+			if (NWMESS_MOB_APPEAR_CUSTOM == messData[0])
+			{
+				messMobAppearCustomPtr = (MessMobAppearCustom *)messData;
+				sprintf(tempMob->name, messMobAppearCustomPtr->name);
+			}
 		}
 		else
 		{
@@ -3257,7 +3339,12 @@ void BBOClient::HandleMessage(char *messData, int dataSize)
 						else if (BLADE_TYPE_MACE == messBladeDescPtr->meshType)
 						{
 							tempMob->blade->LoadFromASC(puma->m_pd3dDevice, "dat\\mace.ASE");
-							tempMob->blade->LoadTexture(puma->m_pd3dDevice,	"dat\\mace.png");
+							tempMob->blade->LoadTexture(puma->m_pd3dDevice, "dat\\mace.png");
+						}
+						else if (BLADE_TYPE_DOUBLE < messBladeDescPtr->meshType && BLADE_TYPE_STAFF1 > messBladeDescPtr->meshType)  // one of the many types of scythes.
+						{
+							tempMob->blade->LoadFromASC(puma->m_pd3dDevice, "dat\\scythe.ASE");
+							tempMob->blade->LoadTexture(puma->m_pd3dDevice, "dat\\scythe.png");
 						}
 						else
 						{
@@ -3670,7 +3757,7 @@ void BBOClient::HandleMessage(char *messData, int dataSize)
 			bsMan.SetType(-2); // dungeon
 			DrawPleaseWaitScreen();
 
-			if (!realm || messChangeMapPtr->realmID != lastRealmID)
+			if (!realm || messChangeMapPtr->realmID != (char)realm->realmType)
 			{
 				aLog.Log("delete realm ptr ");
 				aLog.Log((int) realm);
@@ -3714,9 +3801,19 @@ void BBOClient::HandleMessage(char *messData, int dataSize)
 					realm->Init("dat\\realm-dragon-color.png", "dat\\realm-dragon-sky.png");
 					DrawPleaseWaitScreen();
 					realm->Generate("dat\\realm-dragons-height.png", puma->m_pd3dDevice, 25);
-					realm->LoadTexture( puma->m_pd3dDevice, "dat\\realm-dragon-color.png" );
+					realm->LoadTexture(puma->m_pd3dDevice, "dat\\realm-dragon-color.png");
 					DrawPleaseWaitScreen();
 					realm->CreateSpiritStaticPositions(REALM_ID_DRAGONS);
+					break;
+				case REALM_ID_TEST:
+					aLog.Log("test realm object\n");
+					realm = new RealmObject(messChangeMapPtr->realmID);
+					realm->Init("dat\\test-texture.png", "dat\\realm-dead-sky.png");
+					DrawPleaseWaitScreen();
+					realm->Generate("dat\\test-height.png", puma->m_pd3dDevice, 25);
+					realm->LoadTexture(puma->m_pd3dDevice, "dat\\test-texture.png");
+					DrawPleaseWaitScreen();
+					realm->CreateSpiritStaticPositions(REALM_ID_TEST);
 					break;
 
 				}
@@ -3734,7 +3831,7 @@ void BBOClient::HandleMessage(char *messData, int dataSize)
 			bsMan.SetType(-3); // laby
 			DrawPleaseWaitScreen();
 
-			if (!labyrinth || messChangeMapPtr->realmID != lastRealmID)
+			if (!labyrinth || messChangeMapPtr->realmID != (char)labyrinth->labyrinthType)
 			{
 				aLog.Log("delete labyrinth ptr ");
 				aLog.Log((int) labyrinth);
@@ -3770,7 +3867,21 @@ void BBOClient::HandleMessage(char *messData, int dataSize)
 					DrawPleaseWaitScreen();
 					labyrinth->Generate("dat\\labyrinth2-height.png", puma->m_pd3dDevice, 25);
 					aLog.Log("loadTexture()\n");
-					labyrinth->LoadTexture( puma->m_pd3dDevice, "dat\\labyrinth2-texture.png" );
+					labyrinth->LoadTexture(puma->m_pd3dDevice, "dat\\labyrinth2-texture.png");
+					aLog.Log("CreateStaticPositions()\n");
+					DrawPleaseWaitScreen();
+					labyrinth->CreateStaticPositions();
+					break;
+				case REALM_ID_LAB3:
+					aLog.Log("new labyrinth object\n");
+					labyrinth = new LabyrinthObject(messChangeMapPtr->realmID);
+					aLog.Log("init()\n");
+					labyrinth->Init("dat\\labyrinth-color.png", "dat\\labyrinth3-ceiling.png");
+					aLog.Log("generate()\n");
+					DrawPleaseWaitScreen();
+					labyrinth->Generate("dat\\labyrinth3-height.png", puma->m_pd3dDevice, 25);
+					aLog.Log("loadTexture()\n");
+					labyrinth->LoadTexture(puma->m_pd3dDevice, "dat\\labyrinth3-floor.png");
 					aLog.Log("CreateStaticPositions()\n");
 					DrawPleaseWaitScreen();
 					labyrinth->CreateStaticPositions();
@@ -3784,6 +3895,28 @@ void BBOClient::HandleMessage(char *messData, int dataSize)
 
 			cameraType = 0;
 
+		}
+		else if (SPACE_GROUND == curMapType)
+		{
+			if (messChangeMapPtr->realmID != ground->submaptype) // if going to a different normal realm
+			{
+				ground->Init(messChangeMapPtr->realmID);  // switch the tiles to the alternate
+				ground->Generate(puma->m_pd3dDevice, MAP_SIZE_WIDTH, MAP_SIZE_HEIGHT, 0); // and regenerate the road exclusion map
+				ground->LoadTexture(puma->m_pd3dDevice, "dat\\grassfull.png");            // reload grass texture
+				ground->CreateStaticPositions();										  // and place the static meshes
+				// and reload the grass
+				delete simpleGrass[0];
+				delete simpleGrass[1];
+				delete simpleGrass[2];
+				delete simpleGrass[3];
+
+				simpleGrass[0] = new SimpleGrass(200 / 3 * grassDensity + 5, "dat\\grass-bill-1.png", 0.2f);
+				simpleGrass[1] = new SimpleGrass(200 / 3 * grassDensity + 5, "dat\\grass-bill-2.png", 0.25f);
+				simpleGrass[2] = new SimpleGrass(200 / 3 * grassDensity + 5, "dat\\grass-bill-3.png", 0.3f);
+				simpleGrass[3] = new SimpleGrass(200 / 3 * grassDensity + 5, "dat\\grass-bill-4.png", 0.3f);
+			}
+			lastRealmID = messChangeMapPtr->realmID;								  // and set the realm id so we know whether or not to draw town particles
+			hidemap = lastRealmID;
 		}
 /*
 		if (SPACE_LABYRINTH == curMapType)
@@ -3984,6 +4117,7 @@ void BBOClient::HandleMessage(char *messData, int dataSize)
 	   break;
 
 	case NWMESS_BOOT:
+		lastRealmID = 0;
 		POMSezQuit = TRUE;
 		break;
 /*
@@ -4318,6 +4452,12 @@ void BBOClient::HandleMessage(char *messData, int dataSize)
 							tempMob = (BBOMob *) monsterList->Last();
 						}
 					}
+					if ((tempMob->type == SMOB_BOMB) && (tempMob->cellX == explosionPtr->x) && (tempMob->cellY == explosionPtr->y)) // center it on a bomb in my square
+					{
+						pos = tempMob->spacePoint.location;
+						pos.y = HeightAtPoint(pos.x, pos.z)+ 0.3f; // raise it up a bit?
+
+					}
 					tempMob = (BBOMob *) monsterList->Next();
 				}
 
@@ -4396,6 +4536,25 @@ void BBOClient::HandleMessage(char *messData, int dataSize)
 			{
 				bombSound[0]->PositionSound(pos, MAX_SOUND_DIST);
 				bombSound[0]->Play();
+			}
+			// need to remove da bomb model
+			tempMob = (BBOMob *)monsterList->First();
+			while (tempMob)
+			{
+				if ((tempMob->type==SMOB_BOMB) && // if it'a s bomb
+					(tempMob->cellX==explosionPtr->x) && // and it's
+					(tempMob->cellY == explosionPtr->y)) // in the same square as the explosion
+				{
+					// remove it with no particle 
+					monsterList->Remove(tempMob); // remove t from the mob list
+					ground->ReleaseSlot(tempMob->cellX, tempMob->cellY, tempMob->cellSlot);
+					flockSet->FreePoint(tempMob->flockPointIndex, tempMob);
+					delete tempMob;				 // and delete it. this should remove the model
+												 // a bit hacky, but shoudl work.  FIXME: make explosion packet include mob id.
+
+				}
+
+				tempMob = (BBOMob *)monsterList->Next();
 			}
 		break;
 
@@ -5221,6 +5380,8 @@ void BBOClient::DrawBladeEffect(BBOMob *mob)
 		len *= 0.3f;
 	if (BLADE_TYPE_DOUBLE == mob->bladeType)
 		len *= 0.7f;
+	if (BLADE_TYPE_DOUBLE < mob->bladeType && BLADE_TYPE_STAFF1 > mob->bladeType)
+		len *= 0.7f;
 
 	if (mob->totalBPA && BLADE_TYPE_STAFF1 > mob->bladeType)
 	{
@@ -5262,6 +5423,17 @@ void BBOClient::DrawBladeEffect(BBOMob *mob)
 				D3DXVec3TransformCoord(&pOut, &pV, &matBlade);
 				swordParticle->SetEmissionPoint(pOut);
 				swordParticle->Emit(1, mob->bladeParticleColor[j]); 
+
+			}
+			if (BLADE_TYPE_DOUBLE < mob->bladeType && BLADE_TYPE_STAFF1 > mob->bladeType)
+			{
+				pV.x = 0;
+				pV.y = 0;
+				pV.z = 1 * pos / 5.0f;
+
+				D3DXVec3TransformCoord(&pOut, &pV, &matBlade);
+				swordParticle->SetEmissionPoint(pOut);
+				swordParticle->Emit(1, mob->bladeParticleColor[j]);
 
 			}
 		}
@@ -5311,6 +5483,18 @@ void BBOClient::DrawBladeEffect(BBOMob *mob)
 			pV.y = 0;
 			pV.z = -1 * mob->bladeLength / 6.5f;
 		}
+		else if (BLADE_TYPE_DOUBLE < mob->bladeType && BLADE_TYPE_STAFF1 > mob->bladeType)
+		{
+			pV.x = 0;
+			pV.y = 0;
+			pV.z = -1 * mob->bladeLength / 15.0f;
+			D3DXVec3TransformCoord(&p1, &pV, &matBlade);
+
+			pV.x = 0;
+			pV.y = 0;
+			pV.z = -1 * mob->bladeLength / 6.5f;
+		}
+
 		else if (BLADE_TYPE_MACE == mob->bladeType)
 		{
 			pV.x = 0; 
@@ -5328,6 +5512,7 @@ void BBOClient::DrawBladeEffect(BBOMob *mob)
 			pV.z = -1 * len / 15.0f;
 			pV.y = 1 * len / 5.0f;
 		}
+		
 
 		D3DXVec3TransformCoord(&p2, &pV, &matBlade);
 
@@ -5352,6 +5537,32 @@ void BBOClient::DrawBladeEffect(BBOMob *mob)
 			D3DXVec3TransformCoord(&p1, &pV, &matBlade);
 
 			pV.x = 0; 
+			pV.y = 0;
+			pV.z = 1 * mob->bladeLength / 6.5f;
+
+			D3DXVec3TransformCoord(&p2, &pV, &matBlade);
+
+			ColorQuad cQuad;
+			cQuad.r = mob->bladeTrailColor.r * 255;
+			cQuad.g = mob->bladeTrailColor.g * 255;
+			cQuad.b = mob->bladeTrailColor.b * 255;
+			cQuad.vec[0] = p1;
+			cQuad.vec[1] = p2;
+			cQuad.vec[2] = mob->bladeTrailVec[2];
+			cQuad.vec[3] = mob->bladeTrailVec[3];
+			bladeTrail->AddQuad(cQuad);
+
+			mob->bladeTrailVec[2] = p1;
+			mob->bladeTrailVec[3] = p2;
+		}
+		else if (BLADE_TYPE_DOUBLE < mob->bladeType && BLADE_TYPE_STAFF1 > mob->bladeType)
+		{
+			pV.x = 0;
+			pV.y = 0;
+			pV.z = 1 * mob->bladeLength / 15.0f;
+			D3DXVec3TransformCoord(&p1, &pV, &matBlade);
+
+			pV.x = 0;
 			pV.y = 0;
 			pV.z = 1 * mob->bladeLength / 6.5f;
 

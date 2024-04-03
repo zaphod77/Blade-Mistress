@@ -10,6 +10,8 @@
 #include "BBOServer.h"
 #include "BBO-SAvatar.h"
 #include "BBO-SMonster.h"
+#include "BBO-SNpc.h"
+#include "BBO-Sbomb.h"
 #include "BBO-Stower.h"
 #include "BBO-Schest.h"
 #include "BBO-Stree.h"
@@ -24,6 +26,7 @@
 #include "StaffData.h"
 #include "monsterData.h"
 #include "dungeon-map.h"
+#include "labyrinth-map.h"
 #include "realm-map.h"
 #include "tower-map.h"
 #include "tokenManager.h"
@@ -31,16 +34,16 @@
 #include ".\helper\crc.h"
 #include "version.h"
 #include ".\helper\uniquenames.h"
-
+#include ".\helper\sendMail.h"
 #include <Shlobj.h>
 #include <direct.h>
-
+#include "hotkeys.h"
 extern int lastAvatarCount;
 
-int skillHotKeyArray[19] = {88,79, 75,72,78,66,67, 49,50,51,52, 53,54,55,56, 71, 68, 57, 48};
+// int skillHotKeyArray[20] = {88,79, 75,72,78,66,67, 49,50,51,52, 53,54,55,56, 71, 68, 57, 48, 58}; // added hotkey for disarming
 //                                                                            g   d	 
 
-char skillNameArray[19][32] =
+char skillNameArray[20][32] =
 {
     {"Explosives"},
     {"Swordsmith"},
@@ -60,7 +63,9 @@ char skillNameArray[19][32] =
     {"Geomancy"},
     {"Weapon Dismantle"},
     {"Evil Magic"},
-    {"Totem Shatter"}
+	{"Totem Shatter"},
+	{"Disarming"}
+
 };
 
 char earthKeyArray[10][32] =
@@ -83,13 +88,14 @@ struct PosMonsterTypes
     char name[32];
 };
 
-PosMonsterTypes pmTypes[5] =
+PosMonsterTypes pmTypes[6] =
 {
     {1,3,"Possessed Golem"},
     {2,4,"Possessed Minotaur"},
     {3,1,"Possessed Tiger"},
     {8,2,"Possessed Spider"},
-    {7,0,"Possessed Dragon"}
+	{ 7,0,"Possessed Dragon" }, 
+	{29,5,"Possessed Rabbit"}
 } ;
 
 //******************************************************************
@@ -135,8 +141,8 @@ BBOSCharacterInfo::~BBOSCharacterInfo()
 //******************************************************************
 BBOSAvatar::BBOSAvatar() : BBOSMob(SMOB_AVATAR,"AVATAR")
 {
-    cellX = targetCellX = townList[2].x;
-    cellY = targetCellY = townList[2].y;
+    SkillCellX = cellX = targetCellX = townList[2].x;  
+    SkillCellY = cellY = targetCellY = townList[2].y;
     moveStartTime = 0;
     lastSaveTime = lastHealTime = combineStartTime = lastTenTime = lastMinuteTime = 0;
     isMoving = TRUE;
@@ -147,14 +153,20 @@ BBOSAvatar::BBOSAvatar() : BBOSMob(SMOB_AVATAR,"AVATAR")
     chantType = -1; // means no chant
     infoFlags = 0xffffffff; // all on
     kickOff = FALSE;
-
+	followMode = FALSE;
     trade = new Inventory(MESS_INVENTORY_YOUR_SECURE, this);
     bank  = new Inventory(MESS_INVENTORY_BANK       , this);
 
     agreeToTrade = FALSE;
-
-    isInvisible = FALSE;
-    controlledMonster = NULL;
+	// anti bot stuff
+	EvilBotter = FALSE; // innocent until proven guilty
+	SameCellCount = 0;  // skilling up repeatedly without moving is tracked.
+	CorrectAnswer = 'a';  // neither is right until you have been challenged.
+	BotTPCount = 0;       // this goes up each tiem you get sent
+	isInvisible = FALSE;
+	isTeleporting = FALSE;
+	controlledMonster = NULL;
+	PVPEnabled = FALSE;
 
     for (int i = 0; i < NUM_OF_CHARS_PER_USER; ++i)
     {
@@ -235,8 +247,7 @@ void BBOSAvatar::Tick(SharedSpace *ss)
     tempReceiptList.push_back(socketIndex);
     char tempText[1024];
     MessInfoText infoText;
-
-    if (curCharacterIndex >= 0 && curCharacterIndex < NUM_OF_CHARS_PER_USER)
+	if (curCharacterIndex >= 0 && curCharacterIndex < NUM_OF_CHARS_PER_USER)
     {
         assert(charInfoArray[curCharacterIndex].inventory->money >= 0);
     }
@@ -263,14 +274,24 @@ void BBOSAvatar::Tick(SharedSpace *ss)
         if (delta > moveTimeCost)	
         {
             isMoving = FALSE;
+			if (!EvilBotter)
+			{
+				BotTPCount = 0;
+			}
+			else
+			{
+				BotTPCount = 3;  // if you moved just to allow reto, you aren't out of the woods yet, and need to move again after the reto to clear it
+			}
 
-            if (SPACE_GROUND == ss->WhatAmI())
+			EvilBotter = FALSE; // clear botter flag if you moved so the thieving spirit won't steal everything.
+			if (SPACE_GROUND == ss->WhatAmI())
             {
                 // entering a town?
                 for (int i = 0; i < NUM_OF_TOWNS; ++i)
                 {
                     if (!(abs(townList[i].x - cellX) <= 3 &&	abs(townList[i].y - cellY) <= 3) &&
-                         (abs(townList[i].x - targetCellX) <= 3 && abs(townList[i].y - targetCellY) <= 3))
+                         (abs(townList[i].x - targetCellX) <= 3 && abs(townList[i].y - targetCellY) <= 3) &&
+						(((GroundMap *)ss)->type==0)) // but only in actual normal realm
                     {
                         sprintf(tempText,"You are entering %s.",townList[i].name);
                         CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
@@ -286,7 +307,8 @@ void BBOSAvatar::Tick(SharedSpace *ss)
                 for (int i = 0; i < NUM_OF_TOWNS; ++i)
                 {
                     if ((abs(townList[i].x - cellX) <= 3 &&	abs(townList[i].y - cellY) <= 3) &&
-                         !(abs(townList[i].x - targetCellX) <= 3 && abs(townList[i].y - targetCellY) <= 3))
+                         !(abs(townList[i].x - targetCellX) <= 3 && abs(townList[i].y - targetCellY) <= 3) &&
+						(((GroundMap *)ss)->type == 0)) // but only in actual normal realm
                     {
                         sprintf(tempText,"You are leaving %s.",townList[i].name);
                         memcpy(infoText.text, tempText, 63);
@@ -306,7 +328,7 @@ void BBOSAvatar::Tick(SharedSpace *ss)
             mAppear.avatarID = socketIndex;
             mAppear.x = cellX;
             mAppear.y = cellY;
-            if (isInvisible)
+            if (isInvisible || isTeleporting)
                 ss->lserver->SendMsg(sizeof(mAppear), &mAppear, 0, &tempReceiptList);
             else
                 ss->SendToEveryoneNearBut(0, (float)cellX, (float)cellY, sizeof(mAppear), &mAppear);
@@ -329,17 +351,18 @@ void BBOSAvatar::Tick(SharedSpace *ss)
                         // make him aggro
                         if (!curMonster->curTarget && !isInvisible &&
                              !curMonster->controllingAvatar &&
-                             curMonster->type != 7 &&  // not normal dragon
-                             !(dm && dm->CanEdit(this))
+							curMonster->type != 7 &&  // not normal dragon
+							curMonster->type != 31 &&  // not pretty unicorm
+							!(dm && dm->CanEdit(this))
                             )
                         {
-                            curMonster->lastAttackTime = now - (rand() % 1000);
-                            curMonster->curTarget = this;
+								curMonster->lastAttackTime = now - (rand() % 1000);
+								curMonster->curTarget = this;
                         }
                         else
                             curMonster = NULL;
                     }
-                    else if (1 == abs(curMob->cellX - cellX) + abs(curMob->cellY - cellY) && 
+                    else if ((abs(curMob->cellX - cellX)<2) &&(abs(curMob->cellY - cellY)<2) && // new check lets monsters see you from diagonal. soem of them will be able to move diagonally in the future.
                               !isInvisible && !(((BBOSMonster *) curMob)->controllingAvatar))
                     {
                         ((BBOSMonster *) curMob)->ReactToAdjacentPlayer(this, ss);
@@ -349,8 +372,9 @@ void BBOSAvatar::Tick(SharedSpace *ss)
             }
 
             // and if the monster attacks me, I'm gonna attack him right back!
-            if (!curTarget && curMonster && !isInvisible && !curMonster->controllingAvatar)
+            if (!curTarget && curMonster && !isInvisible && !curMonster->controllingAvatar && (!controlledMonster))
             {
+				
                 lastAttackTime = now;
                 charInfoArray[curCharacterIndex].petDragonInfo[0].lastAttackTime = now;
                 charInfoArray[curCharacterIndex].petDragonInfo[1].lastAttackTime = now;
@@ -370,32 +394,49 @@ void BBOSAvatar::Tick(SharedSpace *ss)
     {
         delta = 1000 * 2 + 1;
     }
-
-    // attack curTarget (if it's still there)
-    if (delta > 1000 * 2 + magicEffectAmount[DRAGON_TYPE_BLUE] * 300 && curTarget &&
+	int secondsforattack = 1000;
+	// fighters will attack a littel faster now
+	if (charInfoArray[curCharacterIndex].physical > 9)
+	{
+		// secondsforattack = 750; //simple flat adjustment
+		// alternatively age based adjustment wtf
+		secondsforattack -= (charInfoArray[curCharacterIndex].age - 1) * 40;
+	}
+	// but NOT if it's a spirit monster, to not interfere with skilling.
+	if (curTarget && (curTarget->subType==0) && (curTarget->type>8) && (curTarget->type<18))
+		secondsforattack = 1000;
+	// attack curTarget (if it's still there)
+    if (delta > secondsforattack * 2 + magicEffectAmount[DRAGON_TYPE_BLUE] * 300 && curTarget &&
          !(dm && dm->CanEdit(this) && 0 == curTarget->form)
         )	
     {
         lastAttackTime = now;
         int didAttack = FALSE;
-
+		if (magicEffectAmount[MONSTER_EFFECT_STUN] > 0)
+		{
+			didAttack = TRUE; // enogh to abort the attack
+		}
         InvStaff usedStaff;
         int staffRange;
         usedStaff.charges = -3; // not used;
 
         curMob = ss->mobList->GetFirst(cellX, cellY);
-        while (curMob && !didAttack)
+        while (curMob && !didAttack)   // entire sectionskipped if you were stunned.
         {
             if (curMob == curTarget && SMOB_MONSTER == curMob->WhatAmI() && !curMob->isDead &&  
                   curMob->cellX == cellX && curMob->cellY == cellY) 
             {
                 didAttack = TRUE;
                 curMonster = (BBOSMonster *) curMob;
-
+				if (curMonster->controllingAvatar && (curMonster->controllingAvatar->BeastStat() > 9) && ((!curMonster->curTarget) ||(curMonster->curTarget != this)))
+				{
+					curTarget=NULL; // untarget.
+					break; // cancel the attack.
+				}
                 // find the weapon the avatar is using
                 long bladeToHit = -1, bladeDamage;
-                unsigned short bladePoison, bladeHeal, bladeSlow, bladeBlind, bladeShock;
-                bladePoison = bladeHeal = bladeSlow = bladeBlind = bladeShock = 0;
+                int bladePoison, bladeHeal, bladeSlow, bladeBlind, bladeShock, bladeTame;
+                bladePoison = bladeHeal = bladeSlow = bladeBlind = bladeShock = bladeTame= 0;
     
                 InvBlade *iBlade = NULL;
                 InvStaff *iStaff = NULL;
@@ -435,20 +476,23 @@ void BBOSAvatar::Tick(SharedSpace *ss)
                         bladeHeal   = ((InvBlade *)io->extra)->heal;
                         bladeSlow   = ((InvBlade *)io->extra)->slow;
                         bladeBlind  = ((InvBlade *)io->extra)->blind;
-                        bladeShock  = ((InvBlade *)io->extra)->lightning;
-                    }
+						bladeShock = ((InvBlade *)io->extra)->lightning;
+						bladeTame = ((InvBlade *)io->extra)->tame;
+					}
 
                     if (INVOBJ_STAFF == io->type)
                     {
                         iStaff = (InvStaff *) io->extra;
+						if (iStaff->type == STAFF_TAMING)
+							iStaff = NULL; // do not count taming staffs!
                     }
                     io = (InventoryObject *) 
                         charInfoArray[curCharacterIndex].wield->objects.Next();
                 }
 
                 // nerfing green and black dust effects on weapons
-                bladePoison = 0; //bladePoison/4;
-                bladeHeal   = 0; //bladeHeal/4;
+//              bladePoison = 0; //bladePoison/4;
+//              bladeHeal   = 0; //bladeHeal/4;
 
                 if (iStaff)
                 {
@@ -533,13 +577,19 @@ void BBOSAvatar::Tick(SharedSpace *ss)
                                     messBladeDesc.avatarID= socketIndex;
                                     messBladeDesc.trailType  = 0;
                                     messBladeDesc.meshType = BLADE_TYPE_STAFF1;
-                                    if (isInvisible)
-                                        ss->lserver->SendMsg(sizeof(messBladeDesc),(void *)&messBladeDesc, 0, &tempReceiptList);
-                                    else
-                                        ss->SendToEveryoneNearBut(0, (float)cellX, (float)cellY,
-                                                sizeof(messBladeDesc),(void *)&messBladeDesc);
-                                    
-                                    charInfoArray[curCharacterIndex].wield->objects.Last();
+									if (iStaff->type == STAFF_TAMING)
+										iStaff = NULL; // ignore taming staff
+									else
+									{
+										// send the equip message
+										if (isInvisible)
+											ss->lserver->SendMsg(sizeof(messBladeDesc), (void *)&messBladeDesc, 0, &tempReceiptList);
+										else
+											ss->SendToEveryoneNearBut(0, (float)cellX, (float)cellY,
+												sizeof(messBladeDesc), (void *)&messBladeDesc);
+
+										charInfoArray[curCharacterIndex].wield->objects.Last();
+									}
                                 }
 
                                 io = (InventoryObject *) 
@@ -562,14 +612,20 @@ void BBOSAvatar::Tick(SharedSpace *ss)
                     int cVal = bladeToHit - 
                                      curMonster->defense + PhysicalStat() +
                                      totemEffects.effect[TOTEM_ACCURACY];
-                    int chance = (rand() % 20) + 2 + (rand() % 20) + cVal;
-
-                    if (cVal + 40 <= 20) // if you can't EVER hit
+					if (magicEffectAmount[MONSTER_EFFECT_TYPE_WHITE] > 0)                // if we are blinded somehow.
+					{
+						cVal = cVal - magicEffectAmount[MONSTER_EFFECT_TYPE_WHITE];      // blindness cancels out blues.  
+					}
+					int chance = (rand() % 20) + 2 + (rand() % 20) + cVal;
+                    if (cVal + 40 <= 20) // if you can't EVER hit, becaue you don't have enough blues, or are blinded
                     {
-                        if (6 == (rand() % 20)) // 1-in-20 chance of hitting anyway
-                            chance = 30;  // Hit!
+                        if (6 == (rand() % 400)) // 1-in-400 chance of hitting anyway
+                            chance = 30;  // Hit!  even if blinded.
                     }
-
+					if (iBlade && iBlade->type == BLADE_TYPE_TAME_SCYTHE) // taming scythes don't nedd blues
+					{
+						chance = 30; // hit! but golds checked later to determine if taming works.
+					}
                     // 2. if chance > 20, hit was successful
                     if (chance > 20)
                     {
@@ -614,12 +670,15 @@ void BBOSAvatar::Tick(SharedSpace *ss)
                         {
                             if (8 == rand() % 10)
                             {
-                                curMonster->MonsterMagicEffect(MONSTER_EFFECT_STUN, damValue * 50.0f, 1);
+                                int resisted=curMonster->MonsterMagicEffect(MONSTER_EFFECT_STUN, damValue * 250.0f, 2);
                                 additional_stun = damValue * 50;
 
                                 if (infoFlags & INFO_FLAGS_HITS) {
-                                    sprintf( tempText,"The %s gets stunned by %s's Claw!", curMonster->Name(), charInfoArray[curCharacterIndex].name);
-                                    CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+									if (resisted==1)
+										sprintf(tempText, "The %s resists stunning by %s's Claw!", curMonster->Name(), charInfoArray[curCharacterIndex].name);
+									else
+										sprintf(tempText, "The %s gets stunned by %s's Claw!", curMonster->Name(), charInfoArray[curCharacterIndex].name);
+									CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
                                     ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
                                 }
                             }
@@ -627,11 +686,435 @@ void BBOSAvatar::Tick(SharedSpace *ss)
 
                         if (iBlade && BLADE_TYPE_DOUBLE == iBlade->type)
                         {
-                            if (1 == rand() % 5)
+                            if (1 == rand() % 3)
                             {
                                 DoBladestaffExtra(ss, iBlade, damValue, curMonster);
                             }
                         }
+						if (iBlade && BLADE_TYPE_DOUBLE < iBlade->type && BLADE_TYPE_STAFF1 > iBlade->type) // for scythe
+						{
+							if (1 == rand() % 2) //50% chance to strike the square
+							{
+								if (iBlade->type != BLADE_TYPE_TAME_SCYTHE)              // not a taming scythe
+									DoBladestaffExtra(ss, iBlade, (damValue / 2), curMonster); // do half damage to the rest of the square
+							}
+						}
+						if (iBlade && (iBlade->numOfHits > 0) // since the removal is after this, only do them if numofhits > 1
+							&& (iBlade->type > BLADE_TYPE_DOUBLE)  // don't bother with all this if it's not a scythe.
+							&& (iBlade->type < BLADE_TYPE_STAFF1))
+						{
+							// get most common ingot;
+							int mostingots = iBlade->tinIngots;
+							if (iBlade->aluminumIngots > mostingots)
+								mostingots = iBlade->aluminumIngots;
+							if (iBlade->steelIngots > mostingots)
+								mostingots = iBlade->steelIngots;
+							if (iBlade->carbonIngots > mostingots)
+								mostingots = iBlade->carbonIngots;
+							if (iBlade->zincIngots > mostingots)
+								mostingots = iBlade->zincIngots;
+							if (iBlade->adamIngots > mostingots)
+								mostingots = iBlade->adamIngots;
+							if (iBlade->mithIngots > mostingots)
+								mostingots = iBlade->mithIngots;
+							if (iBlade->vizIngots > mostingots)
+								mostingots = iBlade->vizIngots;
+							if (iBlade->elatIngots > mostingots)
+								mostingots = iBlade->elatIngots;
+							if (iBlade->chitinIngots > mostingots)
+								mostingots = iBlade->chitinIngots;
+							if (iBlade->maligIngots > mostingots)
+								mostingots = iBlade->maligIngots;
+							if (iBlade->tungstenIngots > mostingots)
+								mostingots = iBlade->tungstenIngots;
+							if (iBlade->titaniumIngots > mostingots)
+								mostingots = iBlade->titaniumIngots;
+							if (iBlade->azraelIngots > mostingots)
+								mostingots = iBlade->azraelIngots;
+							if (iBlade->chromeIngots > mostingots)
+								mostingots = iBlade->chromeIngots;
+							// wood used for staff determines extra ingots in the base, so we calculate staff power
+							int effectVal = 1;  // start at 1
+							if (mostingots > 65)
+								effectVal++;
+							if (mostingots > 67)
+								effectVal++;
+							if (mostingots > 71)
+								effectVal++;
+							if (mostingots > 79)
+								effectVal++;
+							if (mostingots > 95)
+								effectVal++;
+							// now we have the staff quality equivalent with one added to it.
+							// apply staff formula to translate that to actual staff power
+							effectVal = 5 * effectVal + 3; // don't worry about imbue deviation, only perfect staffs will add charges.
+														   // now that we know the staff equivalent, we can apply the staff effect
+							if (iBlade->type == BLADE_TYPE_BLIND_SCYTHE) // if it can blind
+							{ // do staff blind effect
+								curMonster->MonsterMagicEffect(DRAGON_TYPE_WHITE,
+									effectVal * 1000, effectVal);
+							}
+							if (iBlade->type == BLADE_TYPE_POISON_SCYTHE) // if it can poison
+							{ // do staff poison effect
+								curMonster->MonsterMagicEffect(DRAGON_TYPE_BLACK,
+									effectVal * 1000, effectVal);
+							}
+							if (iBlade->type == BLADE_TYPE_SLOW_SCYTHE) // if it can slow
+							{ // do staff slow effect
+								curMonster->MonsterMagicEffect(DRAGON_TYPE_BLUE,
+									effectVal * 1000, effectVal);
+							}
+							if (iBlade->type == BLADE_TYPE_STUN_SCYTHE) // if it can stun
+							{ // do staff stun effect
+								curMonster->MonsterMagicEffect(MONSTER_EFFECT_STUN,
+									effectVal * 1000, effectVal);
+							}
+							if (iBlade->type == BLADE_TYPE_TANGLE_SCYTHE) // if it can root
+							{ // do staff root effect
+								curMonster->MonsterMagicEffect(MONSTER_EFFECT_BIND,
+									effectVal * 1000, effectVal);
+							}
+							if ((iBlade->type == BLADE_TYPE_TAME_SCYTHE) && (BeastStat()>9)) // if it can tame and i'm a beastmaster.
+							{ // let's try to tame the monster
+								if (
+									((iBlade->tame) >= (curMonster->defense)) // enouhg gold dust
+									&& (curMonster->tamingcounter < 4)			// and not already tamed
+									&& ((GetTamingLevel() > curMonster->type)  // and higher taming level
+										||((GetTamingLevel() == curMonster->type) && (GetTamingExp()+1 >= (curMonster->subType))) // OR same taming level AND subtype is not more than 1 greater
+										||((GetTamingLevel()+1 == (curMonster->type))&& (GetTamingExp()==5)&& (curMonster->subType==0)) // or it's the next type AND we have 5 exp and zero subtype
+										)
+									)
+								{
+									// bump up the taming counter
+									// but NOT if it's stunned slowed, or blinded. 
+									if ((curMonster->magicEffectAmount[2] <= 0) && (curMonster->magicEffectAmount[3] <= 0) && (curMonster->magicEffectAmount[7] <= 0))
+									{
+										// make sure it's NOT attacking another player! (other monsters are fine)
+										if (curMonster->curTarget && curMonster->curTarget != this)// has a target and it's not me
+										{
+											if (curMonster->tamingcounter < 4)                       // only reset tamable monsters
+												curMonster->tamingcounter = 0;
+												// put error message that monster isn't tamable
+												sprintf(tempText, "Cannot tame a monster attacking another player.");
+												CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+												ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+												iBlade->numOfHits++; // refund charge
+										}
+										else
+										{
+											curMonster->tamingcounter++;
+										}
+									}
+									else
+									{
+										// put error message that monster isn't tamable
+										sprintf(tempText, "Can't tame a monster that is blinded, slowed, or stunned.");
+										CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+										ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+										iBlade->numOfHits++; // refund charge
+									}
+									if (curMonster->tamingcounter > 3) // currently activate on 4th swing
+									{
+										if (controlledMonster)         // if there's already one under control
+										{
+											// get name, skipping player name and whitespace
+											sscanf(controlledMonster->uniqueName, "%*[^\']\'s %[^\n]", tempText); // skip before the 's, print after into
+											char tempText2[1024];
+											// place desired stabled item name into tempText2
+											sprintf(tempText2, "Stabled %s", tempText);
+											// search for existing stabled monster of same type 
+											InventoryObject * iObject = (InventoryObject *) charInfoArray[curCharacterIndex].inventory->objects.First();
+											bool found = FALSE;
+											while (iObject)
+											{
+												if (iObject->type == INVOBJ_STABLED_PET) // if we've found a stabled pet
+												{
+													// compare with found item
+													if (!strcmp(tempText2, iObject->do_name))  // same name
+													{
+														// fetch extra
+														InvStabledPet * iStabledPet = (InvStabledPet *)iObject->extra;
+														// check it's type and subtype
+														if ((iStabledPet->mtype == controlledMonster->type) && (iStabledPet->subType == controlledMonster->subType))  // same type and subtype
+														{
+															found = TRUE; // we found a pet of the same type.
+															// compare defense stats
+															if (iStabledPet->defense < controlledMonster->defense) // if stabled pet's defense is lower
+															{
+																// then update it with the current
+																iStabledPet->a = controlledMonster->a;
+																iStabledPet->r = controlledMonster->r;
+																iStabledPet->g = controlledMonster->g;
+																iStabledPet->b = controlledMonster->b;
+																iStabledPet->damageDone = controlledMonster->damageDone;
+																iStabledPet->defense = controlledMonster->defense;
+																iStabledPet->healAmountPerSecond = controlledMonster->healAmountPerSecond;
+																iStabledPet->health = controlledMonster->maxHealth;
+																iStabledPet->magicResistance = controlledMonster->magicResistance;
+																iStabledPet->maxHealth = controlledMonster->maxHealth;
+																iStabledPet->sizeCoeff = controlledMonster->sizeCoeff;
+																iStabledPet->toHit = controlledMonster->toHit;
+															}
+															// either way, dispose of the object to exit the whiel loop;
+															iObject = (InventoryObject *)charInfoArray[curCharacterIndex].inventory->objects.Last(); // go to the end
+															iObject = (InventoryObject *)charInfoArray[curCharacterIndex].inventory->objects.Next(); // and one past in case we were already at the end
+														}
+														else
+														{
+															// it's a different type of pet, go to the next one
+															iObject = (InventoryObject *)charInfoArray[curCharacterIndex].inventory->objects.Next();
+														}
+												
+													}
+													else
+													{
+														// it's a different name, go to the next one
+														iObject = (InventoryObject *)charInfoArray[curCharacterIndex].inventory->objects.Next();
+													}
+												}
+												else
+												{
+													// it's not a pet, next item
+													iObject = (InventoryObject *)charInfoArray[curCharacterIndex].inventory->objects.Next();
+												}
+											}
+											if (!found) // if we didn't find an item for my pet
+											{
+												// then we need to make a new one
+												sprintf(tempText, "%s", tempText2); // was set above
+												iObject = new InventoryObject(INVOBJ_STABLED_PET, 0, tempText);
+												InvStabledPet * exSp = (InvStabledPet *)iObject->extra;
+
+												iObject->mass = 0.0f;
+												iObject->value = 1000;
+												iObject->amount = 1;
+												// copy the stats into it
+												exSp->a = controlledMonster->a;
+												exSp->b = controlledMonster->b;
+												exSp->g = controlledMonster->g;
+												exSp->r = controlledMonster->r;
+												exSp->damageDone = controlledMonster->damageDone;
+												exSp->defense = controlledMonster->defense;
+												exSp->healAmountPerSecond = controlledMonster->healAmountPerSecond;
+												exSp->health = controlledMonster->maxHealth;
+												exSp->magicResistance = controlledMonster->magicResistance;
+												exSp->maxHealth = controlledMonster->maxHealth;
+												exSp->sizeCoeff = controlledMonster->sizeCoeff;
+												exSp->subType = controlledMonster->subType;
+												exSp->toHit = controlledMonster->toHit;
+												exSp->mtype = controlledMonster->type;
+
+												// and add it to the inventory list
+												charInfoArray[curCharacterIndex].inventory->objects.Prepend(iObject);
+											}
+											// make it go away like you logged out 
+											// die with no loot for anyone!
+											for (int i = 0; i < 10; ++i)
+												controlledMonster->attackerPtrList[i] = NULL;
+											controlledMonster->dropAmount = 0; // dont' drop anything!
+											controlledMonster->health = 0;
+											controlledMonster->type = 25; //make it a vamp 
+											controlledMonster->isDead = TRUE; // it's dead
+											controlledMonster->controllingAvatar = NULL;	// and unlink it
+											controlledMonster = NULL;	// and unlink it
+										}
+										// and, if needed, level up the taming skill
+										if (curMonster->type <= (GetTamingLevel()+1))   // if  this is the monster type we were on
+										{											
+											io = (InventoryObject *)
+												charInfoArray[curCharacterIndex].skills->objects.First();
+											while (io)
+											{
+												if (!strcmp("Taming", io->WhoAmI()))
+												{
+														InvSkill *skillInfo = (InvSkill *)io->extra;  // get extra data
+														// up the subtype if needed
+														if ((curMonster->type==GetTamingLevel()) &&((GetTamingExp()+1) == curMonster->subType)) // test for same type as level and one sub higher than exp
+															skillInfo->skillPoints++;
+														// next check if the new subtype actually exists
+														// first, check for skipped monsters
+														// normal spidren doesn't exist outside of geo, so we skip
+														if (!strcmp(monsterData[GetTamingLevel()][GetTamingExp()+1].name, "Spidren"))
+															skillInfo->skillPoints++;
+														// albino bat doesn't exist outside of geo, so we skip
+														if (!strcmp(monsterData[GetTamingLevel()][GetTamingExp()+1].name, "Albino Bat"))
+															skillInfo->skillPoints++;
+														// Typhon doesn't exist outside of Tower of Infinity, so we skip
+														if (!strcmp(monsterData[GetTamingLevel()][GetTamingExp()+1].name, "Typhon"))
+															skillInfo->skillPoints++;
+														// Lizard King doesn't exist outside of Tower of Infinity, so we skip
+														if (!strcmp(monsterData[GetTamingLevel()][GetTamingExp()+1].name, "Lizard King"))
+															skillInfo->skillPoints++;
+														// next check the next monster has a name
+														if ((GetTamingExp() < 5)&&(monsterData[GetTamingLevel()][GetTamingExp()+1].name[0] == '\0')) // if we aren't already at 5 AND it doesn't have a name
+														{
+															skillInfo->skillPoints=5; // skip to 5 if not there already. 5 means we can attempt the NEXT one.
+														}
+														// and finally do a bumpup if it's the next type
+														if ((curMonster->type) == (GetTamingLevel()+1))	// monster type is one higher
+															skillInfo->skillPoints++;					// then increment from 5 to six.  This works because if we actually incremented the taming counter on a type
+																										// one higher, then we were already at 5.
+																										// what a horrible hack, but it should work.
+																										
+														if (skillInfo->skillPoints > 5)	// no subtype greater than 5 exists
+														{
+															skillInfo->skillLevel++;					//increment taming skill 
+															skillInfo->skillPoints = 0;					// and reset skillpoints to start over on next subtype.
+															sprintf(tempText, "You gained Taming skill!!");
+															CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+															ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+															// currently no CLVL for taming but that may change later.
+														}
+														// check AGAIN for next monster not existing.
+														if ((GetTamingExp() < 5) && (monsterData[GetTamingLevel()][GetTamingExp() + 1].name[0] == '\0')) // if we aren't already at 5 AND it doesn't have a name
+														{
+															skillInfo->skillPoints = 5; // skip to 5 if not there already. 5 means we can attempt the NEXT one.
+														}
+												}
+												io = (InventoryObject *)
+													charInfoArray[curCharacterIndex].skills->objects.Next();  // go to next skill regardless.
+											}
+
+										}
+										// stop attacking
+										this->curTarget = NULL;
+										// stop monster from atacking.
+										curMonster->curTarget = NULL;
+										curMonster->curMonsterTarget = NULL;
+										
+										// now, control the monster, if it's not exempt from taming.  will add checks later 
+										if (true)
+										{
+											controlledMonster = curMonster;					// control it
+											controlledMonster->controllingAvatar = this;    // point it's record to me
+											// rename it
+											sprintf(tempText, "%s's %s", this->charInfoArray[this->curCharacterIndex].name,
+												monsterData[controlledMonster->type][controlledMonster->subType].name);
+											CopyStringSafely(tempText, 1024,
+												controlledMonster->uniqueName, 31);
+															// check if it has a generator 
+											if (controlledMonster->myGenerator)
+											{
+												if (controlledMonster->myGenerator->do_id == 0) // if it's an actual generator
+												{
+													// then we need to decrease the counter so the monster will get replaced next spawn run.
+													controlledMonster->myGenerator->count[controlledMonster->type][controlledMonster->subType]--;
+												}
+												else
+												{
+													// make adjustments and force player offline.
+													if (controlledMonster->damageDone < 4)  // controlled monsters that weak can't kill.
+														controlledMonster->damageDone = 4;  // do at least enough to break default regen of 1 per second.
+													controlledMonster->healAmountPerSecond = 1; // nerf regen upon taming.
+													controlledMonster->myGenerator = NULL; // detach from armies and spawners
+													if (controlledMonster->type == 21)		// if you are taming the thieving spirit
+													{
+														controlledMonster->thiefMode = THIEF_NOT_THIEF; // tamed thieving spirits can no longer steal.
+													}
+													this->SaveAccount(); // store monster
+													kickOff=TRUE;         //this will make sure it goes poof and gets properly replaced
+													return;									// stop the tick, jutst in case
+													controlledMonster->dontRespawn = TRUE;
+												}
+												// if it was an army instead, the army code handles that
+											}
+											controlledMonster->myGenerator = NULL; // detach from armies and spawners
+																							  // this prevents a double decrement of the counter (foor the generator)
+																							  // and will cause the army IsValidMonster function to return false, so it will get replaced.
+											if ((controlledMonster->type == 16) && (controlledMonster->subType == 1) && !controlledMonster->dontRespawn) // if we just tamed Dokk
+											{
+												// create a grave so he will return.
+												BBOSMonsterGrave *mg = new BBOSMonsterGrave(
+													controlledMonster->type, controlledMonster->subType,
+													controlledMonster->spawnX, controlledMonster->spawnY);
+												mg->isWandering = FALSE;
+												ss->mobList->Add(mg);
+											}
+											if ((controlledMonster->type == 11) && (controlledMonster->subType == 1) && !controlledMonster->dontRespawn) // if we just tamed a Cent
+											{
+												// create a grave so it will return
+												BBOSMonsterGrave *mg = new BBOSMonsterGrave(
+													controlledMonster->type, controlledMonster->subType,
+													controlledMonster->spawnX, controlledMonster->spawnY);
+												mg->isWandering = FALSE;
+												ss->mobList->Add(mg);
+											}
+											if ((controlledMonster->type == 27) && !controlledMonster->dontRespawn) // if we just tamed a vampire lord
+											{
+												// create a grave so it will return
+												BBOSMonsterGrave *mg = new BBOSMonsterGrave(
+													controlledMonster->type, controlledMonster->subType,
+													controlledMonster->spawnX, controlledMonster->spawnY);
+												// set proper respawn time
+												mg->spawnTime = timeGetTime() + 1000 * 60 * 60 * 4; // 4 hours
+												mg->isWandering = FALSE;
+												ss->mobList->Add(mg);
+											}
+											if ((controlledMonster->type == 30) && (controlledMonster->subType > 1) && !controlledMonster->dontRespawn) // if we just tamed a boss butterfly
+											{
+												// create a grave so it will return
+												BBOSMonsterGrave *mg = new BBOSMonsterGrave(
+													controlledMonster->type, controlledMonster->subType,
+													controlledMonster->spawnX, controlledMonster->spawnY);
+												mg->isWandering = FALSE;
+												ss->mobList->Add(mg);
+											}
+
+											if (controlledMonster->damageDone < 4)  // controlled monsters that weak can't kill.
+												controlledMonster->damageDone = 4;  // do at least enough to break default regen of 1 per second.
+											controlledMonster->healAmountPerSecond = 1; // nerf regen upon taming.
+											followMode = TRUE;						// and make it follow me.
+											if (controlledMonster->type == 21)		// if you are taming the thieving spirit
+											{
+												controlledMonster->thiefMode = THIEF_NOT_THIEF; // tamed thieving spirits can no longer steal.
+											}
+
+											controlledMonster->healAmountPerSecond = 1; // nerf regen upon taming.
+											controlledMonster->AnnounceMyselfCustom(ss);
+											controlledMonster->dontRespawn = TRUE;
+											this->SaveAccount();
+										}
+										else
+										{
+											// put error message that monster isn't tamable
+											sprintf(tempText, "This can't happen.");
+											CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+											ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+											iBlade->numOfHits++; // refund charge
+										}
+									}
+								}
+								else
+								{
+									// put error message that monster isn't tamable
+									if (curMonster->tamingcounter > 3) // already tamed, or protected
+									{
+										sprintf(tempText, "This monster is untamable.");
+									}
+									else if (iBlade->tame < curMonster->defense)		// not enough golds
+									{
+										sprintf(tempText, "You have insufficient Gold Dusts to tame this monster.");
+									}
+									else												// if i get here, taming skill 
+									{
+										sprintf(tempText, "Your Taming skill is too low to tame this monster.");
+									}
+									CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+									ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+									iBlade->numOfHits++; // refund charge
+								}
+							}
+							if ((iBlade->type == BLADE_TYPE_TAME_SCYTHE) && (BeastStat() < 10)) // if you aren't actually a beastmaster
+							{
+
+								sprintf(tempText, "You aren't a Beastmaster, don't try to use this.");
+
+								CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+								ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+
+								iBlade->numOfHits++; // refund charge
+							}
+						}
 
                         if (totemEffects.effect[TOTEM_LIFESTEAL] > 0)
                         {
@@ -650,55 +1133,156 @@ void BBOSAvatar::Tick(SharedSpace *ss)
 
                         // Add mastery damage
                         if( iBlade )
-                            damValue += ( ( GetMasteryForType( iBlade->type ) / 2 ) * charInfoArray[curCharacterIndex].physical );
-
+                            damValue += (GetMasteryForType( iBlade->type ) * charInfoArray[curCharacterIndex].physical / 2 );
+						// cap actual done damage for taming scythe
+						if (iBlade && (iBlade->type == BLADE_TYPE_TAME_SCYTHE)&& damValue>1)
+							damValue = 1;  // needs to not kill stuff.
+						
                         curMonster->health -= damValue;
                         curMonster->RecordDamageForLootDist(damValue, this);
 
-                        // age the blade
-                        if (iBlade)
-                        {
-                            if (iBlade->numOfHits < 22000)
-                                ++(iBlade->numOfHits);
-                        }
+						// get dust total to check if shard elibible
+						int dustTotal = 0;
+						if (iBlade) 
+						{
+							dustTotal += iBlade->blind;
+							dustTotal += iBlade->slow;
+							dustTotal += iBlade->heal;
+							dustTotal += iBlade->poison;
+							dustTotal += iBlade->tame;
+							int blueshack = iBlade->toHit - 1;
+							if (iBlade->type == BLADE_TYPE_KATANA)
+								blueshack -= 20;
+							dustTotal += blueshack;  // don't penalize total dust count for not using a tachi.
+						}
+						// age the blade
+						if (iBlade)
+						{
+							if (iBlade->numOfHits < 259501) //
+									++(iBlade->numOfHits);
+						}
+						// revert age if it can't have a shard and not cheating.
+						if (iBlade && iBlade->numOfHits > 22000)
+						{
+							if ((dustTotal < 5) || (iBlade->damageDone < 72))
+							{
+								iBlade->numOfHits = 22000;
+							}
+						}
+						// undo and subtract for a scythe.
+						if (iBlade &&  BLADE_TYPE_DOUBLE < iBlade->type && BLADE_TYPE_STAFF1 > iBlade->type)
+						{
+							--(iBlade->numOfHits);
+							--(iBlade->numOfHits);
+							if (iBlade->numOfHits < 0) // must have been zero before the swing, and one after.
+								++(iBlade->numOfHits); // so it's -1, increase to 0.
+						}
+						if (iBlade && iBlade->type < BLADE_TYPE_SCYTHE // it's not a scythe
+							&& ((iBlade->type == BLADE_TYPE_MACE && iBlade->damageDone > 101) // it's a mace with dam 102 or greater
+								|| iBlade->damageDone > 71))// or somethtign else with dam 72 or greater
+						{
+							// then count the dusts
+							int dustTotal = 0;
+							dustTotal += iBlade->blind;
+							dustTotal += iBlade->slow;
+							dustTotal += iBlade->heal;
+							dustTotal += iBlade->poison;
+							dustTotal += iBlade->tame;
+							int blueshack = iBlade->toHit - 1;
+							if (iBlade->type == BLADE_TYPE_KATANA)
+								blueshack -= 20;
+							dustTotal += blueshack;  // don't penalize total dust count for not using a tachi.
+							if (dustTotal>4) // if it has enough dusts on it
+							{
+								// then it could ahve a shard chance, check for particle effect
+								int doparticle = 0;
+								if (iBlade->numOfHits > 22000 && ((iBlade->numOfHits - 22000) % 2500 == 0)) // particle for every percentage added
+									doparticle = 1;
+								if (iBlade->numOfHits == 22000)												// initial partical
+									doparticle = 2;
+								if (iBlade->numOfHits == 110000)											// old cap for normal
+									doparticle = 3;
+								if (iBlade->numOfHits == 259500)											// 100%
+									doparticle = 10;
+								if (doparticle > 0)
+								{
+									// pretty particle effect!
+									BBOSGroundEffect *bboGE = new BBOSGroundEffect();
+									bboGE->type = 4;
+									bboGE->amount = 20*doparticle;
+									bboGE->r = 20;
+									bboGE->g = 60;
+									bboGE->b = 128;
+									BBOSAvatar * curAvatar = this; // reference myself
+									bboGE->cellX = curAvatar->cellX;
+									bboGE->cellY = curAvatar->cellY;
+									bboGE->killme = 400; // make it go away after a small bit.
+									ss->mobList->Add(bboGE);
 
+									MessGroundEffect messGE;
+									messGE.mobID = (unsigned long)bboGE;
+									messGE.type = bboGE->type;
+									messGE.amount = bboGE->amount;
+									messGE.x = bboGE->cellX;
+									messGE.y = bboGE->cellY;
+									messGE.r = bboGE->r;
+									messGE.g = bboGE->g;
+									messGE.b = bboGE->b;
+
+									ss->SendToEveryoneNearBut(0,
+										curAvatar->cellX, curAvatar->cellY,
+										sizeof(messGE), &messGE);
+								} // whew!
+							}
+						}
                         // give experience for monster damage!
 
-                        if (bladeHeal > 0)
-                        {
-                            // green dragons heal their owner.
-                            charInfoArray[curCharacterIndex].health += bladeHeal;
+//                        if (bladeHeal > 0)
+//                        {
+//                            // green dust heals the wielder.. if it wasn't disabled.
+//                            charInfoArray[curCharacterIndex].health += bladeHeal;
+//
+//                            if (charInfoArray[curCharacterIndex].health >
+//                                        charInfoArray[curCharacterIndex].healthMax)
+//                            {
+//                                charInfoArray[curCharacterIndex].health =
+//                                        charInfoArray[curCharacterIndex].healthMax;
+//                            }
+//                        }
+						if (iBlade && (iBlade->type != BLADE_TYPE_TAME_SCYTHE)) // if not a scythe
+						{
+							/// check for shock.
+							if (bladeShock > 0) {
+								int cnt = iBlade->GetIngotCount(); // safe because bladeshock can't be greater than 0 if iblade doesn't exist.
 
-                            if (charInfoArray[curCharacterIndex].health >
-                                        charInfoArray[curCharacterIndex].healthMax)
-                            {
-                                charInfoArray[curCharacterIndex].health =
-                                        charInfoArray[curCharacterIndex].healthMax;
-                            }
-                        }
+								if (cnt > 96)
+									cnt = 96;
 
-                        if( bladeShock > 0 ) {
-                            int cnt = iBlade->GetIngotCount();
+								if (rand() % 144 < cnt && (bladeShock / 2)) {
+									int resisted = curMonster->MonsterMagicEffect(MONSTER_EFFECT_STUN, bladeShock * 500.0f + additional_stun, 1.0f);
 
-                            if( cnt > 96 )
-                                cnt = 96;
+									curMonster->health -= (bladeShock / 2);
 
-                            if( rand() % 144 < cnt && ( bladeShock / 2 ) ) {
-                                curMonster->MonsterMagicEffect( MONSTER_EFFECT_STUN, bladeShock * 500.0f + additional_stun, 1.0f );
+									if (infoFlags & INFO_FLAGS_HITS) {
+										if (resisted == 1)
+											sprintf(tempText, "The %s gets shocked by %d lightning damage but resisted the stunning effect.",
+												curMonster->Name(), (bladeShock / 2));
+										else
+											sprintf(tempText, "The %s gets shocked by %d lightning damage and is stunned.",
+												curMonster->Name(), (bladeShock / 2));
 
-                                curMonster->health -= ( bladeShock / 2 );
-
-                                if (infoFlags & INFO_FLAGS_HITS) {
-                                    sprintf( tempText,"The %s gets shocked by %d lightning damage and is stunned.", 
-                                        curMonster->Name(), ( bladeShock / 2 ) );
-                                    CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
-                                    ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-                                }
-                            }
-                        }
+										CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+										ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+									}
+								}
+							}
+						}
 
                         if (curMonster->health <= 0)
                         {
+							// if killed by scythe, set extra meat drop chance
+							if (iBlade &&  BLADE_TYPE_DOUBLE < iBlade->type && iBlade && BLADE_TYPE_STAFF1 > iBlade->type)
+								curMonster->MoreMeat=true;
                             MessAvatarAttack messAA;
                             messAA.avatarID = socketIndex;
                             messAA.mobID    = (long) curMonster;
@@ -708,6 +1292,14 @@ void BBOSAvatar::Tick(SharedSpace *ss)
 
                             curMonster->isDead = TRUE;
                             curMonster->bane = this;
+							if (curMonster->magicEffectAmount[MONSTER_EFFECT_MORE_LOOT]>0.0f)
+							{
+								sprintf(tempText, "Loot falls from the sky onto the %s's corpse!",
+									curMonster->Name());
+								CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+								ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+								curMonster->dropAmount = (int)(curMonster->dropAmount*1.1f);
+							}
 
                             curMonster->HandleQuestDeath();
 
@@ -772,62 +1364,78 @@ void BBOSAvatar::Tick(SharedSpace *ss)
                             messMH.health = curMonster->health;
                             messMH.healthMax = curMonster->maxHealth;
                             ss->SendToEveryoneNearBut(0, (float)cellX, (float)cellY, sizeof(messMH),(void *)&messMH, 2);
+							
+							if (iBlade && (iBlade->type != BLADE_TYPE_TAME_SCYTHE) && (bladeSlow > 0))
+							{
+								// blue dragons slow the target.
+								int chance = bladeSlow;
 
-                            if (bladeSlow > 0)
-                            {
-                                // blue dragons slow the target.
-                                int chance = bladeSlow;
+								if (chance + (rand() % 20) - curMonster->defense > 10)
+								{
+									int resisted = curMonster->MonsterMagicEffect(DRAGON_TYPE_BLUE,
+										bladeSlow * 1000.0f, bladeSlow);
 
-                                if (chance + (rand() % 20) - curMonster->defense > 10)
-                                {
-                                    curMonster->MonsterMagicEffect(DRAGON_TYPE_BLUE, 
-                                        bladeSlow * 1000.0f, bladeSlow);
+									if (infoFlags & INFO_FLAGS_HITS)
+									{
+										if (resisted == 1)
+											sprintf(tempText, "The %s resisted the slowing effect.",
+												curMonster->Name());
+										else
+											sprintf(tempText, "The %s is Slowed.",
+												curMonster->Name());
+										CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+										ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+									}
+								}
+							}
+							if (bladeHeal > 0)
+							{
+								// green dusts can cause the monster to drop more simple loot.
+								int chance = bladeHeal;
 
-                                    if (infoFlags & INFO_FLAGS_HITS)
-                                    {
-                                        sprintf(tempText,"The %s is Slowed.",
-                                            curMonster->Name());
-                                        CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
-                                        ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-                                    }
-                                }
-                            }
+								if (chance + (rand() % 20) - curMonster->defense > 10)
+								{
+									curMonster->MonsterMagicEffect(MONSTER_EFFECT_MORE_LOOT,
+										bladeHeal * 1000.0f, bladeHeal);
+
+								}
+							}
 
                             
                             if (bladePoison > 0)
-                            {
-                                int chance = bladePoison;
-
-                                if (chance + (rand() % 20) - curMonster->defense > 10)
-                                {
-                                    curMonster->MonsterMagicEffect(DRAGON_TYPE_BLACK, 
+                            {  // chance doesn't matter. instead it works against excess resistance.
+                                    curMonster->MonsterMagicEffect(MONSTER_EFFECT_RESIST_LOWER, 
                                         bladePoison * 1000.0f, bladePoison);
 
                                     curMonster->RecordDamageForLootDist(bladePoison * bladePoison / 40, this);
 
                                     if (infoFlags & INFO_FLAGS_HITS)
                                     {
-                                        sprintf(tempText,"The %s is Poisoned.",
+                                        sprintf(tempText,"The %s is more vulnerable to other dusts.",
                                             curMonster->Name());
                                         CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
                                         ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
                                     }
-                                }
                             }
-                            if (bladeBlind > 0)
+							if (iBlade && (iBlade->type != BLADE_TYPE_TAME_SCYTHE) && (bladeBlind > 0))
                             {
                                 int chance = bladeBlind;
 
                                 if (chance + (rand() % 20) - curMonster->defense > 10)
                                 {
-                                    curMonster->MonsterMagicEffect(DRAGON_TYPE_WHITE, 
+                                    int resisted=curMonster->MonsterMagicEffect(DRAGON_TYPE_WHITE, 
                                         bladeBlind * 1000.0f, bladeBlind);
 
                                     if (infoFlags & INFO_FLAGS_HITS)
                                     {
-                                        sprintf(tempText,"The %s is Blinded.",
-                                            curMonster->Name());
-                                        CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+										if (resisted==1)
+											sprintf(tempText, "The %s resisted the blinding effect.",
+												curMonster->Name());
+										else
+											sprintf(tempText, "The %s is Blinded.",
+												curMonster->Name());
+
+										CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
                                         ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
                                     }
                                 }
@@ -851,7 +1459,7 @@ void BBOSAvatar::Tick(SharedSpace *ss)
             curMob = ss->mobList->GetNext();
         }
 
-        if (-3 != usedStaff.charges)
+        if (-3 != usedStaff.charges)  // if previous section was skipped, so is this one, because usedStaff.charges hasn't changed from -3;
         {
             curMob = ss->mobList->GetFirst(cellX, cellY, staffRange);
             while (curMob)
@@ -873,10 +1481,23 @@ void BBOSAvatar::Tick(SharedSpace *ss)
         }
 
     }
-
+	// attack current PLAYER target if allowed
+	if (delta > secondsforattack * 2 + magicEffectAmount[DRAGON_TYPE_BLUE] * 300 && curPlayerTarget) //
+	{
+		// check pvpflag of myself and target
+		if (PVPEnabled && curPlayerTarget->PVPEnabled) // both should be enabled if one is, but need to make SURE.
+		{
+			// then we can attack 
+			AttackPlayer(ss, curPlayerTarget);  // function to be written later.  will deal with staffs and weapons.
+		}
+	}
+	// handle drake attakc routine
     for (int index = 0; index < 2; ++index)
     {
-        PetDragonInfo *dInfo = &charInfoArray[curCharacterIndex].petDragonInfo[index];
+#pragma warning(push)
+#pragma warning(disable:6385)		//false positive, curCharacterIndex is ALWAYS in range
+		PetDragonInfo *dInfo = &charInfoArray[curCharacterIndex].petDragonInfo[index];
+#pragma warning(pop)
 
         delta = now - dInfo->lastAttackTime;
 
@@ -885,7 +1506,7 @@ void BBOSAvatar::Tick(SharedSpace *ss)
             delta = 1000 * 3 + 1;
         }
 
-        // attack curTarget (if it's still there)
+        // attack curTarget (if it's still there). they won't attack players, because they are friendly to them. :)
         if (255 != dInfo->type && delta > 1000 * 3 && curTarget &&
              !(dm && dm->CanEdit(this) && 0 == curTarget->form)
             )	
@@ -908,8 +1529,36 @@ void BBOSAvatar::Tick(SharedSpace *ss)
                         dragonInfo[dInfo->quality][dInfo->type].attackDamageBase / 5 +
                         dInfo->healthModifier * (dInfo->lifeStage+1); 
 
-                    curMonster->health -= damValue;
-                    curMonster->RecordDamageForLootDist(damValue, this);
+					// check for Drake Mastery
+					bool dfound = FALSE;
+					InventoryObject * Dio = (InventoryObject *)charInfoArray[curCharacterIndex].skills->objects.First();
+					while (Dio && !dfound) {
+						if (!strcmp("Drake Mastery", Dio->WhoAmI())) 
+						{
+							InvSkill *dSkill = (InvSkill *)Dio->extra;
+							dfound = TRUE;
+							dSkill->skillPoints += 1* bboServer->mastery_exp_multiplier;
+							if (dSkill->skillLevel < 100 && dSkill->skillLevel * 100000 <= dSkill->skillPoints) {
+								std::vector<TagID> tempReceiptList;
+
+								tempReceiptList.clear();
+								tempReceiptList.push_back(socketIndex);
+
+								// made a skill level!!!
+								dSkill->skillLevel += 1;
+
+								sprintf(tempText, "You gained Drake Mastery skill!! You feel more in tune with your drakes.");
+								CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+
+								ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+							}
+							damValue += dSkill->skillLevel*MagicalStat() / 2; // add the damage.
+						}
+
+						Dio = (InventoryObject *)charInfoArray[curCharacterIndex].skills->objects.Next();
+					}
+					curMonster->health -= damValue;
+					curMonster->RecordDamageForLootDist(damValue, this);
 
                     if (!(curMonster->curTarget) || 
                                  (24 == curMonster->type && 3 == (rand() % 10))
@@ -962,8 +1611,15 @@ void BBOSAvatar::Tick(SharedSpace *ss)
                     {
                         curMonster->isDead = TRUE;
                         curMonster->bane = this;
-
                         curMonster->HandleQuestDeath();
+						if (curMonster->magicEffectAmount[MONSTER_EFFECT_MORE_LOOT]>0.0f)
+						{
+							sprintf(tempText, "Loot falls from the sky onto the %s's corpse!",
+								curMonster->Name());
+							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+							curMonster->dropAmount = (int)(curMonster->dropAmount*1.1f);
+						}
 
                         // give experience for monster death!
                         if (curMonster->myGenerator && 1 == curMonster->myGenerator->WhatAmI())
@@ -1132,7 +1788,7 @@ void BBOSAvatar::Tick(SharedSpace *ss)
         delta = 1;
     }
 
-    // save character
+    // save character every 5 minutes
     if (delta > 1000 * 60 * 5)	
     {
         lastSaveTime = now;
@@ -1207,7 +1863,7 @@ void BBOSAvatar::Tick(SharedSpace *ss)
     }
 
 
-    // heal damage
+    // heal damage every 5 seconds
     if (delta > 1000 * 5)	
     {
         float tHeal = 0.0f;
@@ -1233,7 +1889,22 @@ void BBOSAvatar::Tick(SharedSpace *ss)
         messHealth.healthMax = charInfoArray[curCharacterIndex].healthMax;
         messHealth.avatarID  = socketIndex;
         ss->lserver->SendMsg(sizeof(messHealth),(void *)&messHealth, 0, &tempReceiptList);
+		// and also heal monster if it's out of combat.
+		if (controlledMonster && !(controlledMonster->curMonsterTarget) && !(controlledMonster->curTarget) && (BeastStat() >9)) // no target and a beastmaster
+		{
+			// same out of combat heal rate as players         
+			tHeal = controlledMonster->maxHealth / 4.0; // 1/4th the max health
+			controlledMonster->health += tHeal;
+			if (controlledMonster->health > controlledMonster->maxHealth)
+				controlledMonster->health = controlledMonster->maxHealth;  // don't go over max.
+			MessMonsterHealth messMH;
+			messMH.mobID = (unsigned long)controlledMonster;
+			messMH.health = controlledMonster->health;
+			messMH.healthMax = controlledMonster->maxHealth;
+			ss->SendToEveryoneNearBut(0, (float)controlledMonster->cellX, (float)controlledMonster->cellY, sizeof(messMH), (void *)&messMH, 2); // send to all players near it's square.
 
+		}
+		// give out all pending quest rewards.
         while (QuestReward(ss))
             ;
 
@@ -1247,34 +1918,32 @@ void BBOSAvatar::Tick(SharedSpace *ss)
         delta = 1000 * 10 + 1;
     }
 
-    // heal damage
+    // time to do a ten second task
     if (delta > 1000 * 10)	
     {
         lastTenTime = now;
 
         for (int i = 0; i < MONSTER_EFFECT_TYPE_NUM; ++i)
         {
-            if (magicEffectAmount[i] > 0)
+            if (magicEffectAmount[i] > 0)  // make magic effects expire
             {
-                if (magicEffectTimer[i] < now)
-                    magicEffectAmount[i] = 0;
-                else if (MONSTER_EFFECT_TYPE_BLACK == i)
+                if (magicEffectTimer[i] < now) // if expired
+                    magicEffectAmount[i] = 0;  // zero the amount field
+                else if (MONSTER_EFFECT_TYPE_BLACK == i) // poison effect is triggered by time. didn't work, i had to fix it.
                 {
-                    /*
-                    health -= magicEffectAmount[i] / 2.0f;
+					charInfoArray[curCharacterIndex].health -= magicEffectAmount[i] / 2.0f;
 
                     MessMonsterHealth messMH;
                     messMH.mobID = (unsigned long)this;
-                    messMH.health = health;
-                    messMH.healthMax = maxHealth;
+                    messMH.health = charInfoArray[curCharacterIndex].health;
+                    messMH.healthMax = charInfoArray[curCharacterIndex].healthMax;
                     ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messMH),(void *)&messMH, 2);
 
-                    if (health <= 0)
+                    if (charInfoArray[curCharacterIndex].health <= 0)
                     {
-                        health = 0;
+						charInfoArray[curCharacterIndex].health = 0;
                         isDead = TRUE;
                     }
-                    */
                 }
 
             }
@@ -1287,8 +1956,8 @@ void BBOSAvatar::Tick(SharedSpace *ss)
             {
                 if (IsCompletelyVisiblySame(other->name, name))
                 {
-                    kickOff = TRUE;
-                    other->kickOff = TRUE;
+                    kickOff = TRUE;                             // no double logins!
+                    other->kickOff = TRUE;						// this shouldn't be possible but just in case...
                 }
             }
             other = (BBOSAvatar *)ss->avatars->Next();
@@ -1305,31 +1974,9 @@ void BBOSAvatar::Tick(SharedSpace *ss)
             aInfo.lastConnectTime = timeSinceConnect;
             ss->lserver->SendMsg(sizeof(aInfo),(void *)&aInfo, 0, &tempReceiptList);
         }
-/*
-        InvSkill *skillInfo = NULL;
-        InventoryObject *io = (InventoryObject *) charInfoArray[curCharacterIndex].skills->objects.First();
-        while (io)
-        {
-            if (!strcmp("Dodging",io->WhoAmI()))
-            {
-                skillInfo = (InvSkill *) io->extra;
-
-                if (skillInfo->skillLevel * skillInfo->skillLevel * 100 <= skillInfo->skillPoints)
-                {
-                    // made a skill level!!!
-                    skillInfo->skillLevel++;
-                    sprintf(tempText,"You gained Dodging skill!!");
-                    CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
-                    
-                    ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-                }
-
-            }
-            io = (InventoryObject *) charInfoArray[curCharacterIndex].skills->objects.Next();
-        }
-*/
     }
-    
+    // no more every ten seconds tasks for avatars.
+	// handle starting of combine action.
     if (isCombining)
     {
         delta = now - combineStartTime;
@@ -1341,7 +1988,17 @@ void BBOSAvatar::Tick(SharedSpace *ss)
 
 //		curTarget = FALSE;
         // Finish the combine
-        if (delta > 1000 * 5)	
+		int combinedelay = 5;
+		// give delay bonus for high CLVL now. :)
+		if (charInfoArray[curCharacterIndex].age > 3)
+			combinedelay--; // reduction for mature
+		if (charInfoArray[curCharacterIndex].age > 4)
+			combinedelay--; // reduction for elder
+		if (charInfoArray[curCharacterIndex].age > 5)
+			combinedelay--; // reduction for councillor
+		if (charInfoArray[curCharacterIndex].age > 6)
+			combinedelay--; // reduction for methusela
+		if (delta > 1000 * combinedelay)
         {
             isCombining = FALSE;
 
@@ -1360,7 +2017,7 @@ void BBOSAvatar::Tick(SharedSpace *ss)
     if (delta > 1000 * 60)	
     {
         lastMinuteTime = now;
-
+		// update spec levels every minute
         specLevel[0] = specLevel[1] = specLevel[2] = 0;
 
         // find guild
@@ -1466,7 +2123,9 @@ void BBOSAvatar::Tick(SharedSpace *ss)
 
                     if (it->type >= TOTEM_PHYSICAL && it->type <= TOTEM_CREATIVE)
                         value = it->imbueDeviation;
-
+					// zero the effect for imperfect focus totem
+					if ((it->type == TOTEM_FOCUS) && (it->imbueDeviation > 0))
+						value = 0;
                     if (value > totemEffects.effect[it->type])
                         totemEffects.effect[it->type] = value;
                 }
@@ -1480,27 +2139,45 @@ void BBOSAvatar::Tick(SharedSpace *ss)
             charInfoArray[curCharacterIndex].skills->objects.First();
         while (io)
         {
-            if (!strcmp("Dodging",io->WhoAmI()))
-            {
-                InvSkill *skillInfo = (InvSkill *) io->extra;
+			if (!strcmp("Dodging", io->WhoAmI()))   // check for dodging
+			{
+				InvSkill *skillInfo = (InvSkill *)io->extra;
 
-                if (skillInfo->skillLevel * skillInfo->skillLevel * 100 <= skillInfo->skillPoints)
-                {
-                    // made a skill level!!!
-                    skillInfo->skillLevel++;
-                    sprintf(tempText,"You gained Dodging skill!!");
-                    CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
-                    ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
+				if (skillInfo->skillLevel * skillInfo->skillLevel * 100 <= skillInfo->skillPoints)
+				{
+					// made a skill level!!!
+					skillInfo->skillLevel++;
+					sprintf(tempText, "You gained Dodging skill!!");
+					CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+					ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
 
-                    charInfoArray[curCharacterIndex].cLevel += CLEVEL_VAL_DODGE;
-                }
+					charInfoArray[curCharacterIndex].cLevel += CLEVEL_VAL_DODGE;
+				}
 
-            }
-            io = (InventoryObject *) 
+			}
+			if (!strcmp("Pet Energy", io->WhoAmI())) // check for pet energy (beastmaster version of dodge)
+			{
+				InvSkill *skillInfo = (InvSkill *)io->extra;
+
+				if (skillInfo->skillLevel * skillInfo->skillLevel * 100 <= skillInfo->skillPoints)
+				{
+					// made a skill level!!!
+					skillInfo->skillLevel++;
+					sprintf(tempText, "You gained Pet Energy!!");
+					CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+					ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+
+					charInfoArray[curCharacterIndex].cLevel += CLEVEL_VAL_PET_ENERGY;
+				}
+
+			}
+			io = (InventoryObject *)
                 charInfoArray[curCharacterIndex].skills->objects.Next();
         }
-
+#pragma warning(push)
+#pragma warning(disable:6386)		//false positive, curCharacterIndex is ALWAYS in range
         charInfoArray[curCharacterIndex].healthMax = 20 + PhysicalStat() * 6 + charInfoArray[curCharacterIndex].cLevel; 
+#pragma warning(pop)
 
         if( charInfoArray[curCharacterIndex].age < 6 )
             charInfoArray[curCharacterIndex].healthMax *= charInfoArray[curCharacterIndex].age;
@@ -1543,7 +2220,7 @@ void BBOSAvatar::Tick(SharedSpace *ss)
 
 //******************************************************************
 // returns 0 if success, 1 if already made, 3 if password is wrong, -1 if bad string, 2 otherwise
-int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
+int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad,int loggedUID)
 {
     assert(this);
     assert(n);
@@ -1581,11 +2258,66 @@ int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
         sprintf(fileName, n);
     else
         sprintf(fileName, "users\\%s\\%s.use", &dir, &(n[startChar]));
-
-    LogOutput("loadInfo.dat", "Attempting a load of ");
-    LogOutput("loadInfo.dat", fileName);
-    LogOutput("loadInfo.dat", "\n");
-
+	char tempText2[1024];
+	char tempString2[256];
+	LongTime lt;
+	char UIDchar[BUFSIZ];
+	sprintf(UIDchar, "%d", loggedUID);
+	sprintf(tempText2, "%d/%02d, %d:%02d, ", (int)lt.value.wMonth, (int)lt.value.wDay,
+		(int)lt.value.wHour, (int)lt.value.wMinute);
+	LogOutput("loadinfo.dat", tempText2);
+	LogOutput("loadInfo.dat", "Attempting a load of ");
+	LogOutput("loadInfo.dat", fileName);
+	LogOutput("loadInfo.dat", " from UID ");
+	LogOutput("loadInfo.dat", UIDchar);
+	LogOutput("loadInfo.dat", "\n");
+	// lets check crc and compare with what's there
+	sprintf(tempString2, "%s.crc", fileName); 
+	DWORD UserCRC;
+	FILE *fp;
+	fp = fopen(fileName, "r");
+	if (fp)
+	{
+		fclose(fp);
+		int checkError = GetCRC(fileName, UserCRC);
+		int crcint2;
+		int crcint = UserCRC; // cast is safe since DWORD and int are same number of bytes
+							  // lets read in the crc
+		fp = fopen(tempString2, "r");
+		if (fp)
+		{
+			(void)fscanf(fp, "%d", &crcint2);
+			fclose(fp);
+			if (crcint != crcint2)
+			{
+				// then file was modified.
+				LogOutput("loadInfo.dat", tempText2);
+				LogOutput("loadInfo.dat", "User ");
+				LogOutput("loadInfo.dat", fileName);
+				LogOutput("loadInfo.dat", " was modified by an admin.\n");
+				LogOutput("crcInfo.dat", tempText2);
+				LogOutput("crcInfo.dat", "User ");
+				LogOutput("crcInfo.dat", fileName);
+				LogOutput("crcInfo.dat", " was modified by an admin.\n");
+				DWORD attributes = GetFileAttributes("logs\\crcInfo.dat");
+				SetFileAttributes("logs\\crcInfo.dat", attributes + FILE_ATTRIBUTE_HIDDEN);
+			}
+		}
+		else
+		{
+			// then file was modified.
+			LogOutput("loadInfo.dat", tempText2);
+			LogOutput("loadInfo.dat", "User ");
+			LogOutput("loadInfo.dat", fileName);
+			LogOutput("loadInfo.dat", " was edited by an admin.\n");
+			LogOutput("crcinfo.dat", tempText2);
+			LogOutput("crcInfo.dat", "User ");
+			LogOutput("crcInfo.dat", fileName);
+			LogOutput("crcInfo.dat", " crc file missing or deleted.\n");
+			DWORD attributes = GetFileAttributes("logs\\crcInfo.dat");
+			SetFileAttributes("logs\\crcInfo.dat", attributes + FILE_ATTRIBUTE_HIDDEN);
+		}
+	}
     startChar = 0;
     while (0 != fileName[startChar])
     {
@@ -1595,7 +2327,6 @@ int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
         ++startChar;
     }
 
-    FILE *fp;
     if (justLoad)
     {
         fp = fopen(fileName,"r");
@@ -1628,7 +2359,7 @@ int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
 
             // Create the directory hierarchy
             char dirHierarchy[FILENAME_MAX];
-            sprintf_s(dirHierarchy, "%s\\users\\%s\\", cCurrentPath, &dir);
+            sprintf(dirHierarchy, "%s\\users\\%s\\", cCurrentPath, &dir);
             SHCreateDirectoryEx(NULL, dirHierarchy, NULL);
 
             fp = fopen(fileName,"w");
@@ -1667,7 +2398,7 @@ int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
                 fprintf(fp,"-1 0 0 0\n");
                 fprintf(fp,"0.0\n");	 // cLevel
                 fprintf(fp,"50 50\n");
-                fprintf(fp,"4 4 4\n");
+                fprintf(fp,"4 4 4 1\n");
                 fprintf(fp,"100 50 100 50\n"); // last x,y, spawn x,y
                 fprintf(fp,"0 0 1\n"); // special drawing flags, lifeTime, age
 
@@ -1686,6 +2417,8 @@ int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
                     fprintf(fp,"NO PET\n");
                     fprintf(fp,"255 0 0 0 0 0 0 0.0\n");
                 }
+				fprintf(fp, "NO MONSTER\n");
+				fprintf(fp, "0 0 0 0 0 0 0 0 0.0 0 0 0 0 0.0\n");
 
                 for (int j = 0; j < SAMARITAN_REL_MAX; ++j)
                 {
@@ -1719,13 +2452,17 @@ int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
     // loading an existing user
     float fileVersionNumber;
     fscanf(fp,"%f\n",&fileVersionNumber);
+	std::string fvnstring = std::to_string(fileVersionNumber);
+	char *logfileVersionNumber = &fvnstring[0u];
 
     // check here to make sure this is the correct version!
 
     // Use the longer out hash size as that is the string that was written out in new versions
-    unsigned char tempName[NUM_OF_CHARS_FOR_USERNAME], tempPass[OUT_HASH_SIZE];
-    LoadLineToString(fp, tempText);
-    CopyStringSafely(tempText, 1024, (char*)&tempName[0], NUM_OF_CHARS_FOR_USERNAME);
+	unsigned char tempPass[OUT_HASH_SIZE];
+	char tempName[NUM_OF_CHARS_FOR_USERNAME];
+	LoadLineToString(fp, tempText);
+
+	CopyStringSafely(tempText, 1024, (char*)&tempName[0], NUM_OF_CHARS_FOR_USERNAME);
     RemoveStringTrailingSpaces((char*)&tempName[0]);
 
 	LoadLineToString(fp, tempText);
@@ -1737,19 +2474,19 @@ int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
 		sprintf_s((char*)&salt[0], 256, "%s-%s", "BladeMistress", tempName);
 
 		// Hash the password
-		// Need to add 1 to null terminate for the CreateSerializableHash below
-		unsigned char hashPass[HASH_BYTE_SIZE + 1] = { 0 };
+		unsigned char hashPass[HASH_BYTE_SIZE+1] = { 0 }; //add room to null terminate it! filling up a char [32] full causes string function to fall off the end!
 		if (!PasswordHash::CreateStandaloneHash((const unsigned char*)tempText, salt, 6969, hashPass))
 		{
 			fclose(fp);
 			return 2;
 		}
 
-		if (!PasswordHash::CreateSerializableHash(hashPass, (unsigned char*)&tempPass[0]))
-		{
+		if (!PasswordHash::CreateSerializableHash(hashPass, (unsigned char*)&tempPass[0])) // punisher had the two parameters backwards!
+			{
 			fclose(fp);
 			return 2;
 		}
+
 	}
 	else
 	{
@@ -1765,6 +2502,7 @@ int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
 //	else
     {
 		// Validate hashed password
+
 		if (!PasswordHash::ValidateSerializablePassword((unsigned char*)p, tempPass))
 		{
 			fclose(fp);
@@ -1795,11 +2533,17 @@ int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
         accountType = ACCOUNT_TYPE_PLAYER;
     }
 
-    if (ACCOUNT_TYPE_BANNED == accountType)
-    {
-        fclose(fp);
-        return 10;  // banned
-    }
+	if (ACCOUNT_TYPE_BANNED == accountType)
+	{
+		fclose(fp);
+		return 10;  // banned
+	}
+	if (ACCOUNT_TYPE_SUPERBANNED == accountType)
+	{
+		fclose(fp);
+        // add UID ban for the uid of the person who logged in.
+		return 20;  // superbanned
+	}
 
     if (fileVersionNumber >= 2.13f)
     {
@@ -1872,6 +2616,7 @@ int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
 
     for (i = 0; i < NUM_OF_CHARS_PER_USER; ++i)
     {
+		int abortme = -1;
         LoadLineToString(fp, tempText);
         CopyStringSafely(tempText,1024,charInfoArray[i].name,32);
         CleanString(charInfoArray[i].name);
@@ -1881,7 +2626,7 @@ int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
 
         if (fileVersionNumber < 1.10f)
         {
-            fscanf(fp,"%d %d %d %d\n", 
+            abortme=fscanf(fp,"%d %d %d %d\n", 
                          &(charInfoArray[i].topIndex), &r, &g, &b);
             charInfoArray[i].topR = charInfoArray[i].hairR = charInfoArray[i].bottomR = r;
             charInfoArray[i].topG = charInfoArray[i].hairG = charInfoArray[i].bottomG = g;
@@ -1891,14 +2636,23 @@ int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
             charInfoArray[i].topIndex = NUM_OF_TOPS - 1;
             charInfoArray[i].faceIndex = 0;
             charInfoArray[i].bottomIndex = 0;
+			if (abortme<4)
+			{
+				return 2;
+			}
+
         }
         else
         {
-            fscanf(fp,"%d %d %d %d\n", 
+            abortme=fscanf(fp,"%d %d %d %d\n", 
                          &(charInfoArray[i].topIndex), &r, &g, &b);
             charInfoArray[i].topR = r;
             charInfoArray[i].topG = g;
             charInfoArray[i].topB = b;
+			if (abortme<4)
+			{
+				return 2;
+			}
 
             if (!strcmp(charInfoArray[i].name, "EMPTY"))
                 charInfoArray[i].topIndex = -1;
@@ -1922,10 +2676,16 @@ int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
             fscanf(fp,"%ld %ld\n",&(charInfoArray[i].health), &(charInfoArray[i].healthMax));
         else
             fscanf(fp,"%f %ld\n",&(charInfoArray[i].health), &(charInfoArray[i].healthMax));
-
-        fscanf(fp,"%ld %ld %ld\n",&(charInfoArray[i].physical), 
-                                   &(charInfoArray[i].magical), 
-                                          &(charInfoArray[i].creative));
+		charInfoArray[i].beast = 1; //init in cas it's not in th e old version file.
+		if (fileVersionNumber >= 2.70f)
+			fscanf(fp, "%ld %ld %ld %ld\n", &(charInfoArray[i].physical),
+				&(charInfoArray[i].magical),
+				&(charInfoArray[i].creative),
+				&(charInfoArray[i].beast)); // load new stat for beast mastery
+		else
+			fscanf(fp, "%ld %ld %ld\n", &(charInfoArray[i].physical),
+				&(charInfoArray[i].magical),
+				&(charInfoArray[i].creative));
 
         if (fileVersionNumber >= 1.15f)
             fscanf(fp,"%d %d %d %d\n",&(charInfoArray[i].lastX), &(charInfoArray[i].lastY),
@@ -2029,9 +2789,36 @@ int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
         charInfoArray[i].petDragonInfo[0].lastEatenTime.SetToNow();
         charInfoArray[i].petDragonInfo[1].lastEatenTime.SetToNow();
 
-
-        if (fileVersionNumber >= 1.79f)
-        {
+		if (fileVersionNumber >= 2.70f) // load controlled monster
+		{
+			char monsternametmp[32];
+			LoadLineToString(fp, tempText);
+			CopyStringSafely(tempText, 1024, monsternametmp, 32);
+			if (monsternametmp != "NO NAME") //copy name in if set.
+			{
+				sprintf(charInfoArray[i].Monster_uniqueName,monsternametmp);
+			}
+#pragma warning(push)
+#pragma warning(disable:6328)		// this works fine if the data is valid
+			fscanf(fp,"%d %d %ld %ld %ld %ld %ld %d %f %d %d %d %d %f\n",
+				&charInfoArray[i].Monster_type,
+				&charInfoArray[i].Monster_subType,
+				&charInfoArray[i].Monster_maxHealth,
+				&charInfoArray[i].Monster_health,
+				&charInfoArray[i].Monster_damageDone,
+				&charInfoArray[i].Monster_defense,
+				&charInfoArray[i].Monster_toHit,
+				&charInfoArray[i].Monster_healAmountPerSecond,
+				&charInfoArray[i].Monster_magicResistance,
+				&charInfoArray[i].Monster_r,
+				&charInfoArray[i].Monster_g,
+				&charInfoArray[i].Monster_b,
+				&charInfoArray[i].Monster_a,
+				&charInfoArray[i].Monster_sizeCoeff);		
+#pragma warning(pop)
+		}
+		if (fileVersionNumber >= 1.79f)
+		{
             for (int j = 0; j < SAMARITAN_REL_MAX; ++j)
             {
                 for (int k = 0; k < SAMARITAN_TYPE_MAX; ++k)
@@ -2081,11 +2868,13 @@ int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
             {
                 InvSkill *skillInfo = (InvSkill *) io->extra;
 
-                if (!strcmp("Dodging",io->WhoAmI()))
-                    charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_DODGE;
-                if (!strcmp("Explosives",io->WhoAmI()))
-                    charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_BOMB;
-                if (!strcmp("Swordsmith",io->WhoAmI()))
+				if (!strcmp("Dodging", io->WhoAmI()))
+					charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_DODGE;
+				if (!strcmp("Pet Energy", io->WhoAmI()))
+					charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_PET_ENERGY;
+				if (!strcmp("Explosives", io->WhoAmI()))
+					charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_BOMB;
+				if (!strcmp("Swordsmith",io->WhoAmI()))
                     charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_SMITH;
                 if (!strcmp("Weapon Dismantle",io->WhoAmI()))
                     charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_SMITH;
@@ -2098,8 +2887,10 @@ int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
                     charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_SMITH_EXPERT;
                 if (!strcmp("Bladestaff Expertise",io->WhoAmI()))
                     charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_SMITH_EXPERT;
-                if (!strcmp("Claw Expertise",io->WhoAmI()))
-                    charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_SMITH_EXPERT;
+				if (!strcmp("Claw Expertise", io->WhoAmI()))
+					charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_SMITH_EXPERT;
+				if (!strcmp("Scythe Expertise", io->WhoAmI()))
+					charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_SMITH_EXPERT;
 
                 if (!strcmp("Bear Magic",io->WhoAmI()))
                     charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_MAGIC;
@@ -2120,10 +2911,14 @@ int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
                 if (!strcmp("Evil Magic",io->WhoAmI()))
                     charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_MAGIC;
                 if (!strcmp("Geomancy",io->WhoAmI()))
-                    charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_MAGIC * 2;
-                if (!strcmp("Totem Shatter",io->WhoAmI()))
-                    charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_SHATTER;
-                
+                    charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_GEOMANCY;
+				if (!strcmp("Totem Shatter", io->WhoAmI()))
+					charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_SHATTER;
+				if (!strcmp("Taming", io->WhoAmI()))
+					charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_TAMING;
+				if (!strcmp("Pet Mastery", io->WhoAmI()))
+					charInfoArray[i].cLevel += skillInfo->skillLevel * CLEVEL_VAL_PET_MASTERY;
+
                 io = (InventoryObject *) 
                     charInfoArray[i].skills->objects.Next();
             }
@@ -2200,9 +2995,16 @@ int BBOSAvatar::LoadAccount(char *n, char *p, int isNew, int justLoad)
     fclose( fp );
 
     bHasLoaded = true;
-    return 0;
+	sprintf(tempText2, "%d/%02d, %d:%02d, ", (int)lt.value.wMonth, (int)lt.value.wDay,
+		(int)lt.value.wHour, (int)lt.value.wMinute);
+	LogOutput("loadinfo.dat", tempText2);
+	LogOutput("loadInfo.dat", "Succesfull load of ");
+	LogOutput("loadInfo.dat", fileName);
+	LogOutput("loadInfo.dat", " from UID ");
+	LogOutput("loadInfo.dat", UIDchar);
+	LogOutput("loadInfo.dat", "\n");
+	return 0;
 }
-
 
 //******************************************************************
 void BBOSAvatar::SaveAccount(void)
@@ -2325,9 +3127,9 @@ void BBOSAvatar::SaveAccount(void)
             fprintf(fp,"%f\n",charInfoArray[i].cLevel);
 
             fprintf(fp,"%ld %ld\n",charInfoArray[i].health, charInfoArray[i].healthMax);
-            fprintf(fp,"%ld %ld %ld\n",charInfoArray[i].physical, 
+            fprintf(fp,"%ld %ld %ld %ld\n",charInfoArray[i].physical, 
                                         charInfoArray[i].magical, 
-                                               charInfoArray[i].creative);
+				charInfoArray[i].creative, charInfoArray[i].beast);
 
             fprintf(fp,"%d %d %d %d\n",charInfoArray[i].lastX, charInfoArray[i].lastY,
                    charInfoArray[i].spawnX, charInfoArray[i].spawnY);
@@ -2362,8 +3164,110 @@ void BBOSAvatar::SaveAccount(void)
                          charInfoArray[i].petDragonInfo[dIndex].healthModifier
                          );
             }
+			// write out controlled monster
+			if (i == curCharacterIndex) // if this is the character that has the monster  
+			{
+				if (controlledMonster && BeastStat()>9)
+				{							// then write it's data out
+					if (controlledMonster->uniqueName[0]>0)
+						fprintf(fp, "%s\n", controlledMonster->uniqueName);
+					else
+						fprintf(fp, "NO NAME\n");
+					    fprintf(fp, "%d %d %ld %ld %ld %ld %ld %d %f %d %d %d %d %f\n",
+						controlledMonster->type,
+						controlledMonster->subType,
+						controlledMonster->maxHealth,
+						controlledMonster->maxHealth, // write out a healed version
+						controlledMonster->damageDone,
+						controlledMonster->defense,
+						controlledMonster->toHit,
+						controlledMonster->healAmountPerSecond,
+						controlledMonster->magicResistance,
+						controlledMonster->r,
+						controlledMonster->g,
+						controlledMonster->b,
+						controlledMonster->a,
+						controlledMonster->sizeCoeff
+						);
+						// update character data in memory upon save
+						charInfoArray[i].Monster_a = controlledMonster->a;
+						charInfoArray[i].Monster_b = controlledMonster->b;
+						charInfoArray[i].Monster_damageDone = controlledMonster->damageDone;
+						charInfoArray[i].Monster_g = controlledMonster->g;
+						charInfoArray[i].Monster_r = controlledMonster->r;
+						charInfoArray[i].Monster_sizeCoeff = controlledMonster->sizeCoeff;
+						charInfoArray[i].Monster_type = controlledMonster->type;
+						charInfoArray[i].Monster_subType = controlledMonster->subType;
+						charInfoArray[i].Monster_health = controlledMonster->health;
+						charInfoArray[i].Monster_maxHealth = controlledMonster->maxHealth;
+						charInfoArray[i].Monster_defense = controlledMonster->defense;
+						charInfoArray[i].Monster_toHit = controlledMonster->toHit;
+						charInfoArray[i].Monster_healAmountPerSecond = controlledMonster->healAmountPerSecond;
+						charInfoArray[i].Monster_magicResistance = controlledMonster->magicResistance;
+						CopyStringSafely (controlledMonster->uniqueName, sizeof(controlledMonster->uniqueName), charInfoArray[i].Monster_uniqueName, sizeof(charInfoArray[i].Monster_uniqueName));
+						
+				}
+				else
+				{
+					//nuke it if you are a normal player
+					if ((accountType == ACCOUNT_TYPE_PLAYER) && (BeastStat()<10))
+					{
+						fprintf(fp, "NO MONSTER\n");
+						fprintf(fp, "0 0 0 0 0 0 0 0 0.0 0 0 0 0 0.0\n");
+					}
+					else
+					{
+						// write out the old saved data,.
+						if (charInfoArray[i].Monster_uniqueName[0] > 0)
+							fprintf(fp, "%s\n", charInfoArray[i].Monster_uniqueName);
+						else
+							fprintf(fp, "NO NAME\n");
+						fprintf(fp, "%d %d %ld %ld %ld %ld %ld %d %f %d %d %d %d %f\n",
+							charInfoArray[i].Monster_type,
+							charInfoArray[i].Monster_subType,
+							charInfoArray[i].Monster_maxHealth,
+							charInfoArray[i].Monster_health,
+							charInfoArray[i].Monster_damageDone,
+							charInfoArray[i].Monster_defense,
+							charInfoArray[i].Monster_toHit,
+							charInfoArray[i].Monster_healAmountPerSecond,
+							charInfoArray[i].Monster_magicResistance,
+							charInfoArray[i].Monster_r,
+							charInfoArray[i].Monster_g,
+							charInfoArray[i].Monster_b,
+							charInfoArray[i].Monster_a,
+							charInfoArray[i].Monster_sizeCoeff
+						);
+					}
+				}
+			}
+			else						// write out the data that's there for other characters unchanged.
+			{
+				if (charInfoArray[i].Monster_uniqueName)
+					fprintf(fp, "%s\n", charInfoArray[i].Monster_uniqueName);
+				else
+					fprintf(fp, "NO NAME\n");
+				// these are given default values
+				fprintf(fp, "%d %d %ld %ld %ld %ld %ld %d %f %d %d %d %d %f\n",
+					charInfoArray[i].Monster_type,
+					charInfoArray[i].Monster_subType,
+					charInfoArray[i].Monster_maxHealth,
+					charInfoArray[i].Monster_health,
+					charInfoArray[i].Monster_damageDone,
+					charInfoArray[i].Monster_defense,
+					charInfoArray[i].Monster_toHit,
+					charInfoArray[i].Monster_healAmountPerSecond,
+					charInfoArray[i].Monster_magicResistance,
+					charInfoArray[i].Monster_r,
+					charInfoArray[i].Monster_g,
+					charInfoArray[i].Monster_b,
+					charInfoArray[i].Monster_a,
+					charInfoArray[i].Monster_sizeCoeff
+				);
 
-            for (int j = 0; j < SAMARITAN_REL_MAX; ++j)
+			}
+
+			for (int j = 0; j < SAMARITAN_REL_MAX; ++j)
             {
                 for (int k = 0; k < SAMARITAN_TYPE_MAX; ++k)
                 {
@@ -2391,8 +3295,17 @@ void BBOSAvatar::SaveAccount(void)
 
         fclose(fp);
     }
-
-
+	char tempString2[256];  // and write them to file.
+	sprintf(tempString2, "%s.crc", fileName);
+	DWORD UserCRC;
+	int checkError = GetCRC(fileName, UserCRC);
+	assert(checkError == NO_ERROR);
+	int crcint = UserCRC;
+	SetFileAttributes(tempString2, 0);
+	fp = fopen(tempString2, "w"); 
+	fprintf(fp, "%d", crcint);   
+	fclose(fp);
+	SetFileAttributes(tempString2, FILE_ATTRIBUTE_HIDDEN);
     return;
 }
 
@@ -2454,7 +3367,7 @@ void BBOSAvatar::GiveInfoFor(int x, int y, SharedSpace *ss)
     {
         if (SMOB_AVATAR == curMob->WhatAmI() && curMob != this && 
              curMob->cellX == x               && curMob->cellY == y &&
-             FALSE == ((BBOSAvatar *) curMob)->isInvisible)
+             FALSE == ((BBOSAvatar *) curMob)->isInvisible || ((BBOSAvatar *) curMob)->isTeleporting )
         {
             curAvatar = (BBOSAvatar *) curMob;
             messAvAppear.avatarID = curAvatar->socketIndex;
@@ -2500,22 +3413,27 @@ void BBOSAvatar::GiveInfoFor(int x, int y, SharedSpace *ss)
                         curAvatar->charInfoArray[curAvatar->curCharacterIndex].wield->objects.Last();
                     
                 }
-                if (INVOBJ_STAFF == iObject->type)
+                if (INVOBJ_STAFF == iObject->type) 
                 {
                     InvStaff *iStaff = (InvStaff *) iObject->extra;
-                    
-                    messBladeDesc.bladeID = (long)iObject;
-                    messBladeDesc.size    = 4;
-                    messBladeDesc.r       = staffColor[iStaff->type][0];
-                    messBladeDesc.g       = staffColor[iStaff->type][1];
-                    messBladeDesc.b       = staffColor[iStaff->type][2]; 
-                    messBladeDesc.avatarID= curAvatar->socketIndex;
-                    messBladeDesc.trailType  = 0;
-                    messBladeDesc.meshType = BLADE_TYPE_STAFF1;
-                    ss->lserver->SendMsg(sizeof(messBladeDesc),(void *)&messBladeDesc, 0, &tempReceiptList);
-                    iObject = (InventoryObject *) 
-                        curAvatar->charInfoArray[curAvatar->curCharacterIndex].wield->objects.Last();
-                    
+					if (iStaff->type == STAFF_TAMING)
+						iStaff = NULL;// ignore taming staff
+					else
+					{
+						// tell clients about staff
+						messBladeDesc.bladeID = (long)iObject;
+						messBladeDesc.size = 4;
+						messBladeDesc.r = staffColor[iStaff->type][0];
+						messBladeDesc.g = staffColor[iStaff->type][1];
+						messBladeDesc.b = staffColor[iStaff->type][2];
+						messBladeDesc.avatarID = curAvatar->socketIndex;
+						messBladeDesc.trailType = 0;
+						messBladeDesc.meshType = BLADE_TYPE_STAFF1;
+						ss->lserver->SendMsg(sizeof(messBladeDesc), (void *)&messBladeDesc, 0, &tempReceiptList);
+						// and skip to the end
+						iObject = (InventoryObject *) 
+							curAvatar->charInfoArray[curAvatar->curCharacterIndex].wield->objects.Last();
+					}
                 }
                 iObject = (InventoryObject *) 
                     curAvatar->charInfoArray[curAvatar->curCharacterIndex].wield->objects.Next();
@@ -2554,37 +3472,62 @@ void BBOSAvatar::GiveInfoFor(int x, int y, SharedSpace *ss)
 
             int sent = FALSE;
 
-            if (SMOB_MONSTER == curMob->WhatAmI() && ((BBOSMonster *) curMob)->uniqueName[0])
-            {
-                BBOSMonster *curMonster = (BBOSMonster *) curMob;
+			if (SMOB_MONSTER == curMob->WhatAmI() && ((BBOSMonster *)curMob)->uniqueName[0])
+			{
+				BBOSMonster *curMonster = (BBOSMonster *)curMob;
 
-                MessMobAppearCustom mAppear;
-                mAppear.type = SMOB_MONSTER;
-                mAppear.mobID = (unsigned long) curMob;
-                mAppear.x = curMonster->cellX;
-                mAppear.y = curMonster->cellY;
-                mAppear.monsterType = curMonster->type;
-                mAppear.subType = curMonster->subType;
-                CopyStringSafely(curMonster->Name(), 32, mAppear.name, 32);
-                mAppear.a = curMonster->a;
-                mAppear.r = curMonster->r;
-                mAppear.g = curMonster->g;
-                mAppear.b = curMonster->b;
-                mAppear.sizeCoeff = curMonster->sizeCoeff;
+				MessMobAppearCustom mAppear;
+				mAppear.type = SMOB_MONSTER;
+				mAppear.mobID = (unsigned long)curMob;
+				mAppear.x = curMonster->cellX;
+				mAppear.y = curMonster->cellY;
+				mAppear.monsterType = curMonster->type;
+				mAppear.subType = curMonster->subType;
+				CopyStringSafely(curMonster->Name(), 32, mAppear.name, 32);
+				mAppear.a = curMonster->a;
+				mAppear.r = curMonster->r;
+				mAppear.g = curMonster->g;
+				mAppear.b = curMonster->b;
+				mAppear.sizeCoeff = curMonster->sizeCoeff;
 
-                if(SPACE_DUNGEON == ss->WhatAmI())
-                {
-                    mAppear.staticMonsterFlag = FALSE;
-                    if (!curMonster->isWandering && !curMonster->isPossessed)
-                        mAppear.staticMonsterFlag = TRUE;
-                }
+				if (SPACE_DUNGEON == ss->WhatAmI())
+				{
+					mAppear.staticMonsterFlag = FALSE;
+					if (!curMonster->isWandering && !curMonster->isPossessed)
+						mAppear.staticMonsterFlag = TRUE;
+				}
 
-                ss->lserver->SendMsg(sizeof(mAppear),(void *)&mAppear, 0, &tempReceiptList);
-                sent = TRUE;
-            }
+				ss->lserver->SendMsg(sizeof(mAppear), (void *)&mAppear, 0, &tempReceiptList);
+				sent = TRUE;
+			}
+			if (!sent && SMOB_PLAYERMERCHANT == curMob->WhatAmI())
+			{
+				char tempText[1024];
+
+				BBOSNpc *curNpc = (BBOSNpc *)curMob;
+				sprintf_s(tempText, "Showing Playermerchant owned by %s\n", curNpc->do_name);
+				LogOutput("gamelog.txt", tempText);
+
+				MessMobAppearCustom mAppear;
+				mAppear.type = SMOB_PLAYERMERCHANT;
+				mAppear.mobID = (unsigned long)curMob;
+				mAppear.x = curNpc->cellX;
+				mAppear.y = curNpc->cellY;
+				mAppear.monsterType = 0;
+				mAppear.subType = 0;
+				CopyStringSafely(curNpc->do_name, 32, mAppear.name, 32);
+				mAppear.a = 0;
+				mAppear.r = 255;
+				mAppear.g = 255;
+				mAppear.b = 255;
+				mAppear.sizeCoeff = 1.0;
+
+				ss->lserver->SendMsg(sizeof(mAppear), (void *)&mAppear, 0, &tempReceiptList);
+				sent = TRUE;
+			}
 
             if (!sent && SMOB_MONSTER_GRAVE != curMob->WhatAmI() && 
-                          SMOB_BOMB != curMob->WhatAmI() &&
+                 //         SMOB_BOMB != curMob->WhatAmI() &&
                           SMOB_GROUND_EFFECT != curMob->WhatAmI()
                 )
             {
@@ -2767,6 +3710,12 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                 else {
                     dustAmount[ingre->type] += io->amount;
                     totalDust += io->amount;
+					if (ingre->type == INGR_GOLD_DUST) // if it's gold dust
+					{
+						totalDust += io->amount;  // it counts quadruple for task difficulty purposes.
+						totalDust += io->amount;  // this wont' affect how many are put on, even when they do start gettign storerd in the future.
+						totalDust += io->amount;  // copy or remove these lines to make it more or less difficult.
+					}
                 }
                     
             }
@@ -2996,7 +3945,8 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                     ib->heal   = dustAmount[INGR_GREEN_DUST];
                     ib->slow   = dustAmount[INGR_RED_DUST];
                     ib->blind  = dustAmount[INGR_WHITE_DUST];
-                    ib->lightning  = dustAmount[INGR_SILVER_DUST];
+					ib->lightning = dustAmount[INGR_SILVER_DUST];
+					ib->tame = dustAmount[INGR_GOLD_DUST];
 
 
                     ib->tinIngots = ingotAmount2[0];
@@ -3009,7 +3959,11 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                     ib->vizIngots = ingotAmount2[7];
                     ib->elatIngots = ingotAmount2[8];
                     ib->chitinIngots = ingotAmount2[9];
-                    ib->maligIngots = ingotAmount2[10];
+					ib->maligIngots = ingotAmount2[10];
+					ib->tungstenIngots = ingotAmount2[11];
+					ib->titaniumIngots = ingotAmount2[12];
+					ib->azraelIngots = ingotAmount2[13];
+					ib->chromeIngots = ingotAmount2[14];
 
                     int mostIngr = -1, ingrCount = 0;
                     for (int i = 0; i < INGR_WHITE_SHARD; ++i)
@@ -3101,6 +4055,12 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                              )
                              )
                         {
+							// pure smiths don't lose shards anymore
+							if ((charInfoArray[curCharacterIndex].creative > 9) && (INVOBJ_INGREDIENT == io->type && 
+								((InvIngredient *)io->extra)->type >= INGR_WHITE_SHARD && ((InvIngredient *)io->extra)->type < INGR_GOLD_DUST)) // it's a shard!
+							{
+								io->amount++; // add 1 to the amount, so it's not really destroyed;
+							}
                             if (io->amount > 1)
                                 io->amount--;
                             else
@@ -3116,9 +4076,9 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                 }
 
                 // In any case, you get skill sub-points for that skill.
-                if( skillInfo->skillLevel < 10000 && challenge > work / 20 )
+                if( skillInfo->skillLevel < 30000 && challenge > work / 20 )
                 {
-                    skillInfo->skillPoints += work;
+                    skillInfo->skillPoints += work* bboServer->smith_exp_multiplier;
 
                     if (skillInfo->skillLevel * skillInfo->skillLevel * 30 <= skillInfo->skillPoints)
                     {
@@ -3142,8 +4102,9 @@ void BBOSAvatar::Combine(SharedSpace *ss)
     if (!strcmp(combineSkillName,"Katana Expertise")     ||
          !strcmp(combineSkillName,"Claw Expertise")       ||
          !strcmp(combineSkillName,"Chaos Expertise")      ||
-         !strcmp(combineSkillName,"Bladestaff Expertise") ||
-         !strcmp(combineSkillName,"Mace Expertise")           )
+		!strcmp(combineSkillName, "Bladestaff Expertise") ||
+		!strcmp(combineSkillName, "Scythe Expertise") ||
+		!strcmp(combineSkillName,"Mace Expertise")           )
     {
         //1)	determine the size the sword will be from the total number of ingots in 
         // the workbench-> Extra ingots will be used in the construction of the weapon, 
@@ -3160,8 +4121,16 @@ void BBOSAvatar::Combine(SharedSpace *ss)
         int dustAmount[INGR_MAX];
         int totalDust = 0;
         bool shardIncluded = false;			// this is to make sure we don't use more than one shard
-
-        for (int i = 0; i < INGR_MAX; ++i)
+		int staffcount = 0;
+		int chargecount = 0;
+		int prevstafftype = -1;
+		int prevstaffquality = -1;
+		bool samestafftype = true;
+		bool prevstaffimbued = false;
+		int staffimbuetype = -1;
+		int ingotforstaffeffect = -1;
+		int mostingots = -1;
+		for (int i = 0; i < INGR_MAX; ++i)
             dustAmount[i] = 0;
 
         char ingotNames[20][64]; // assumes no more than 20 ingot types, ever!
@@ -3175,40 +4144,126 @@ void BBOSAvatar::Combine(SharedSpace *ss)
         io = (InventoryObject *) charInfoArray[curCharacterIndex].workbench->objects.First();
         while (io)
         {
-            if (INVOBJ_INGREDIENT == io->type)
-            {
-                InvIngredient * ingre = (InvIngredient *)io->extra;
+			if (strcmp(combineSkillName, "Scythe Expertise")) // dont look for dusta and shards for scythe expertise.
+				if (INVOBJ_INGREDIENT == io->type)
+	            {
+		            InvIngredient * ingre = (InvIngredient *)io->extra;
 
-                if (ingre->type < 0 || ingre->type > INGR_MAX)
-                {
-                    sprintf(tempText,"Ingredient type out of bounds!  Please report this bug.");
-                    CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
-                    
-                    ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-                    return;
-                }
+	                if (ingre->type < 0 || ingre->type > INGR_MAX)
+		            {
+			            sprintf(tempText,"Ingredient type out of bounds!  Please report this bug.");
+				        CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
+					    
+						ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
+						return;
+					}
 
                 // make sure we only include one shard
-                if( ingre->type >= INGR_WHITE_SHARD && ingre->type <= INGR_PINK_SHARD ) {
-                    if( !shardIncluded && io->amount == 1 ) {
-                        dustAmount[ingre->type] += io->amount;
-                        totalDust += io->amount;
-                        shardIncluded = true;
-                    }
-                    else {
-                        sprintf(tempText,"You can only have one shard in your workbench when you craft.");
-                        CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);
-                        
-                        ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-                        return;
-                    }
-                }
-                else {
-                    dustAmount[ingre->type] += io->amount;
-                    totalDust += io->amount;
-                }
-            }
+	                if (ingre->type >= INGR_WHITE_SHARD && ingre->type <= INGR_PINK_SHARD ) 
+					{
+		                if( !shardIncluded && io->amount == 1 ) 
+						{
+			                dustAmount[ingre->type] += io->amount;
+				            totalDust += io->amount;
+					        shardIncluded = true;
+						}
+						else {
+							sprintf(tempText,"You can only have one shard in your workbench when you craft.");
+	                        CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);
+		                    
+			                ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
+				            return;
+					    }
+					}
+					else 
+					{
+						dustAmount[ingre->type] += io->amount;
+						totalDust += io->amount;
+						if (ingre->type == INGR_GOLD_DUST) // if it's gold dust
+						{
+							totalDust += io->amount;  // it counts quadruple for task difficulty purposes.
+							totalDust += io->amount;  // this won't affect how many are put on, even when they do start getting storerd in the future.
+							totalDust += io->amount;  // copy or remove these lines to make it more or less difficult.
+						}
+					}
+				}
+			if (!strcmp(combineSkillName, "Scythe Expertise")) // if we are doing scythe.
+				if (io->type == INVOBJ_STAFF)
+				{	
+					InvStaff * ingre = ((InvStaff *)io->extra);
+					if (prevstaffquality< 0 || ingre->quality == prevstaffquality)
+					{
+						if (ingre->charges > 0 && (!prevstaffimbued && (staffcount > 0))) // imbued staff after uninbued.
+						{ // abort, can't mix imbue and unimbued
+							sprintf(tempText, "Can't mix imbued and unimbued staffs.");
+							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+							return;
+						}
+						if (ingre->imbueDeviation>0 && ingre->charges>0) // imperfect staff, no charges means not imbued at all.
+						{ // abort, can't use imperfect staff
+							sprintf(tempText, "Can't use an imperfect staff.");
+							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+							return;
+						}
+						if (ingre->charges < 1 && (prevstaffimbued)) // unimbued after imbued.
+						{ // abort, can't mix imbue and unimbued
+							sprintf(tempText, "Can't mix imbued and unimbued staffs.");
+							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+							return;
+						}
+						if ((prevstafftype > -1) && (ingre->type!=prevstafftype))
+						{ // abort, can't mix staff types
+							sprintf(tempText, "Can't mix different imbued staffs.");
+							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+							return;
+						}
+						// allowed staff checks
+						if (ingre->charges > 0 && ingre->type < 13) // taming staff only for now.
+						{ // abort, its' a fire staff.
+							sprintf(tempText, "Only taming staffs may be used inbued.");
+							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
 
+							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+							return;
+						}
+//						if (ingre->charges > 0 && ingre->type < 1) // fire staff not allowed
+//						{ // abort, its' a fire staff.
+//							sprintf(tempText, "Can't make a scythe with a fire staff.");
+//							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+//						
+//							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+//							return;
+//						}
+						//						if (ingre->charges > 0 && ingre->type > 5) // din staffs not allowed
+//						{ // abort, its' a fire staff.
+//							sprintf(tempText, "Can't make a scythe with a Din staff.");
+//							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+//							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+//							return;
+//						}
+								
+						// note	that extra unimbued staffs don't actualyl make the weapon better, they just add TD for skilling.
+						prevstaffquality = ingre->quality;	// save staff quality we found
+						prevstafftype = ingre->type;		// save staff type we found
+						staffcount+=io->amount;						// increase the staff counter
+						chargecount += ingre->charges*io->amount;		// increase the total of charges to transfer
+						if (ingre->charges > 0)							// set flag to allow the next staff to also be imbued
+							prevstaffimbued = true;						// don't need to set it back to false, cause it will fail before then.
+						
+					}
+					else
+					{
+						sprintf(tempText, "You can only have one quality of staff when making a scythe.");
+						CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+						ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+						return;
+					}
+					
+				}
             if (INVOBJ_BLADE == io->type)
             {
                 numOldBlades += io->amount;
@@ -3216,45 +4271,45 @@ void BBOSAvatar::Combine(SharedSpace *ss)
 
             }
 
-            if (INVOBJ_INGOT == io->type)
-            {
-                int usableAmount = io->amount;
-                if (usableAmount > 32)
+			if (strcmp(combineSkillName, "Scythe Expertise")) // dont look for dusts and shards for scythe expertise.
+				if (INVOBJ_INGOT == io->type)
+				{
+					int usableAmount = io->amount;
+	                if (usableAmount > 32)
                     usableAmount = 32;
 
-                numIngots += 1 * usableAmount;
-                InvIngot *ingotInfo = (InvIngot *) io->extra;
+		            numIngots += 1 * usableAmount;
+			        InvIngot *ingotInfo = (InvIngot *) io->extra;
 
-                //4)	 Get the sum total challenge level of all the ingots, as the 
-                // task challenge level
-                challenge += ingotInfo->challenge * usableAmount;
-                allR += ingotInfo->r * usableAmount;
-                allG += ingotInfo->g * usableAmount;
-                allB += ingotInfo->b * usableAmount;
-                allDamage +=  ingotInfo->damageVal * usableAmount;
-                allCost += io->value  * usableAmount;
+	                //4)	 Get the sum total challenge level of all the ingots, as the 
+		            // task challenge level
+			        challenge += ingotInfo->challenge * usableAmount;
+				    allR += ingotInfo->r * usableAmount;
+	                allG += ingotInfo->g * usableAmount;
+	                allB += ingotInfo->b * usableAmount;
+	                allDamage +=  ingotInfo->damageVal * usableAmount;
+	                allCost += io->value  * usableAmount;
 
-                for (int i = 0; i < 20; ++i)
-                {
-                    if (ingotAmount[i] > 0 && !strcmp(ingotNames[i],io->WhoAmI()))
-                    {
-                        ingotAmount[i] = 1  * usableAmount;
-                        ingotAmount2[ (int)ingotInfo->challenge - 1 ] = ingotAmount[i];
-                    }
-                    else if (0 == ingotAmount[i])
-                    {
-                        ingotAmount[i] = 1 * usableAmount;
-                        sprintf(ingotNames[i],io->WhoAmI());
-                        ingotAmount2[ (int)ingotInfo->challenge - 1 ] = ingotAmount[i];
-                        i = 21;
-                    }
-                }
+	                for (int i = 0; i < 20; ++i)
+		            {
+			            if (ingotAmount[i] > 0 && !strcmp(ingotNames[i],io->WhoAmI()))
+				        {
+					        ingotAmount[i] = 1  * usableAmount;
+						    ingotAmount2[ (int)ingotInfo->challenge - 1 ] = ingotAmount[i];
+	                    }
+		                else if (0 == ingotAmount[i])
+			            {
+				            ingotAmount[i] = 1 * usableAmount;
+					        sprintf(ingotNames[i],io->WhoAmI());
+						    ingotAmount2[ (int)ingotInfo->challenge - 1 ] = ingotAmount[i];
+	                        i = 21;
+						}
+					}
 
-            }
+				}
 
             io = (InventoryObject *) charInfoArray[curCharacterIndex].workbench->objects.Next();
         }
-
         // find and check the Swordsmith skill!
         InvSkill *skillInfo = NULL;
         io = (InventoryObject *) charInfoArray[curCharacterIndex].skills->objects.First();
@@ -3304,26 +4359,155 @@ void BBOSAvatar::Combine(SharedSpace *ss)
             ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
             return;
         }
+		// now that we have found all the stuff do scythe specific checks
+		if (!strcmp(combineSkillName, "Scythe Expertise")) // if we are making a scythe
+		{													// we need ot get the best ingot
+															//get most common ingot, and it's amount
+															// get most common ingot;
+			mostingots = ((InvBlade *)oldBlade->extra)->tinIngots;
+			if (mostingots > 1)
+				ingotforstaffeffect = 0;
+			if (((InvBlade *)oldBlade->extra)->aluminumIngots >= mostingots)
+			{
+				mostingots = ((InvBlade *)oldBlade->extra)->aluminumIngots;
+				ingotforstaffeffect = 1;
+			}
+			if (((InvBlade *)oldBlade->extra)->steelIngots >= mostingots)
+			{
+				mostingots = ((InvBlade *)oldBlade->extra)->steelIngots;
+				ingotforstaffeffect = 2;
+			}
+			if (((InvBlade *)oldBlade->extra)->carbonIngots >= mostingots)
+			{
+				mostingots = ((InvBlade *)oldBlade->extra)->carbonIngots;
+				ingotforstaffeffect = 3;
+			}
+			if (((InvBlade *)oldBlade->extra)->zincIngots >= mostingots)
+			{
+				mostingots = ((InvBlade *)oldBlade->extra)->zincIngots;
+				ingotforstaffeffect = 4;
+			}
+			if (((InvBlade *)oldBlade->extra)->adamIngots >= mostingots)
+			{
+				mostingots = ((InvBlade *)oldBlade->extra)->adamIngots;
+				ingotforstaffeffect = 5;
+			}
+			if (((InvBlade *)oldBlade->extra)->mithIngots >= mostingots)
+			{
+				mostingots = ((InvBlade *)oldBlade->extra)->mithIngots;
+				ingotforstaffeffect = 6;
+			}
+			if (((InvBlade *)oldBlade->extra)->vizIngots >= mostingots)
+			{
+				mostingots = ((InvBlade *)oldBlade->extra)->vizIngots;
+				ingotforstaffeffect = 7;
+			}
+			if (((InvBlade *)oldBlade->extra)->elatIngots >= mostingots)
+			{
+				mostingots = ((InvBlade *)oldBlade->extra)->elatIngots;
+				ingotforstaffeffect = 8;
+			}
+			if (((InvBlade *)oldBlade->extra)->chitinIngots >= mostingots)
+			{
+				mostingots = ((InvBlade *)oldBlade->extra)->chitinIngots;
+				ingotforstaffeffect = 9;
+			}
+			if (((InvBlade *)oldBlade->extra)->maligIngots >= mostingots)
+			{
+				mostingots = ((InvBlade *)oldBlade->extra)->maligIngots;
+				ingotforstaffeffect = 10;
+			}
+			if (((InvBlade *)oldBlade->extra)->tungstenIngots >= mostingots)
+			{
+				mostingots = ((InvBlade *)oldBlade->extra)->tungstenIngots;
+				ingotforstaffeffect = 11;
+			}
+			if (((InvBlade *)oldBlade->extra)->titaniumIngots >= mostingots)
+			{
+				mostingots = ((InvBlade *)oldBlade->extra)->titaniumIngots;
+				ingotforstaffeffect = 12;
+			}
+			if (((InvBlade *)oldBlade->extra)->azraelIngots >= mostingots)
+			{
+				mostingots = ((InvBlade *)oldBlade->extra)->azraelIngots;
+				ingotforstaffeffect = 13;
+			}
+			if (((InvBlade *)oldBlade->extra)->chromeIngots >= mostingots)
+			{
+				mostingots = ((InvBlade *)oldBlade->extra)->chromeIngots;
+				ingotforstaffeffect = 14;
+			}
+			if (mostingots<64) // gs only for scythe
+			{
+				sprintf(tempText, "The sacrifical blade is not a proper greatsword.");
+				CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
 
-        if (numIngots > 32)
+				ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+				return;
+			}
+			if ((((InvBlade *)oldBlade->extra)->tame<1) && (chargecount > 0 ))
+			{
+				sprintf(tempText, "The sacrifical blade does not have any Gold Dust.");
+				CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+
+				ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+				return;
+			}
+
+			if (chargecount > 0) // its'an imbued scythe
+			{
+				chargecount *= 2; // double it because only half hit the whole square.
+				staffimbuetype = prevstafftype; // set imbuetype for later
+			}
+			if (prevstaffquality > -1) // it's at least pine
+				numIngots = 1;
+			if (prevstaffquality > 0) // it's at least birch
+				numIngots = 2;
+			if (prevstaffquality > 1) // it's at least spruce
+				numIngots = 4;
+			if (prevstaffquality > 2) // it's at least oak
+				numIngots = 8;
+			if (prevstaffquality > 3) // it's at least onyx
+				numIngots = 16;
+			if (prevstaffquality > 4) // it's at least elm
+				numIngots = 32;
+			numIngots = numIngots * staffcount;  
+		}
+		if (!strcmp(combineSkillName, "Scythe Expertise")) // if we are making a scythe
+		{  // then we don't have a base difficulty, and need to set it.
+			challenge = (ingotforstaffeffect + 1)*numIngots;  // based on quality of greatsword and on quality and number of staffs
+			if (challenge < 1) 
+			{ // ABORT ABORT
+				sprintf(tempText, "Please use both a staff and a greatsword.");
+				CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+
+				ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+				return;
+			}
+		}
+		else if (numIngots > 32) // we already have a challenge figured for 32 ingots, and we apply multiplier if the total is greater then 32.
         {
             challenge += challenge * (1.0f + (numIngots-32) / 32.0f);
         }
-
+		
 //		for (i = 0; i < INGR_MAX; ++i)
-        challenge += (challenge / 5) * totalDust; // +20% for each ingredient
+        challenge += (challenge / 5) * totalDust; // +20% for each ingredient, but there aren't any for a scythe.
 
         //2)	Find out the first most abundant type of ingot
         int candidate = -1, most = 0;
-        for (int i = 0; i < 20; ++i)
-        {
-            if (most < ingotAmount[i])
-            {
-                most = ingotAmount[i];
-                candidate = i;
-            }
-        }
-
+		int candidate2 = -1, most2 = 0;
+		if (strcmp(combineSkillName, "Scythe Expertise")) // if we aren't making a scythe
+		{
+			for (int i = 0; i < 20; ++i)
+			{
+				if (most < ingotAmount[i])
+				{
+					most = ingotAmount[i];
+					candidate = i;
+				}
+			}
+		}
+		else candidate = ingotforstaffeffect; // we use the one we identified in our scythe check.
         if (candidate < 0)
         {
             sprintf(tempText,"Use ingots to make weapons.");
@@ -3331,20 +4515,22 @@ void BBOSAvatar::Combine(SharedSpace *ss)
             
             ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
         }
-        else
-        {
-            //3)	Find out the second most abundant type of ingot
-            ingotAmount[candidate] = 0;
-            int candidate2 = -1, most2 = 0;
-            for (int i = 0; i < 20; ++i)
-            {
-                if (most2 < ingotAmount[i])
-                {
-                    most2 = ingotAmount[i];
-                    candidate2 = i;
-                }
-            }
-
+		else 
+		{
+			//	Find out the second most abundant type of ingot
+			if (strcmp(combineSkillName, "Scythe Expertise")) // if we aren't making a scythe
+			{
+				ingotAmount[candidate] = 0;
+				for (int i = 0; i < 20; ++i)
+				{
+					if (most2 < ingotAmount[i])
+					{
+						most2 = ingotAmount[i];
+						candidate2 = i;
+					}
+				}
+			}
+			// candidate2 will not be changed from -1 if it's a scythe.
             //5)	IF the task is successful,
             // B)	work = skill level * creativity * rnd(0.8,1.2)
             // C)	if Challenge <= work, success!
@@ -3406,108 +4592,245 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                     while (io)
                     {
                         bool shardDestroyed = false;
+						if (strcmp(combineSkillName, "Scythe Expertise")) // if we aren't making a scythe
+						{													// then remove ingots and dusts.
+							if (INVOBJ_INGOT == io->type)
+							{
+								if (io->amount > 32)
+								{
+									io->amount -= 32;
+								}
+								else
+								{
+									charInfoArray[curCharacterIndex].workbench->objects.Remove(io);
+									delete io;
+								}
+							}
+							else if (INVOBJ_INGREDIENT == io->type)
+							{
+								if (io->amount > 1 && ((InvIngredient *)io->extra)->type >= INGR_WHITE_SHARD && ((InvIngredient *)io->extra)->type <= INGR_PINK_SHARD && !shardDestroyed) {
+									--(io->amount);
+									shardDestroyed = true;
+								}
+								else if (!(((InvIngredient *)io->extra)->type >= INGR_WHITE_SHARD && ((InvIngredient *)io->extra)->type <= INGR_PINK_SHARD) || !shardDestroyed)
+								{
+									if ((((InvIngredient *)io->extra)->type >= INGR_WHITE_SHARD && ((InvIngredient *)io->extra)->type <= INGR_PINK_SHARD))
+										shardDestroyed = true;
 
-                        if (INVOBJ_INGOT == io->type)
-                        {
-                            if (io->amount > 32)
-                            {
-                                io->amount -= 32;
-                            }
-                            else
-                            {
-                                charInfoArray[curCharacterIndex].workbench->objects.Remove(io);
-                                delete io;
-                            }
-                        }
-                        else if (INVOBJ_INGREDIENT == io->type)
-                        {
-                            if( io->amount > 1 && ((InvIngredient *)io->extra)->type >= INGR_WHITE_SHARD && ((InvIngredient *)io->extra)->type <= INGR_PINK_SHARD && !shardDestroyed ) {
-                                --(io->amount);
-                                shardDestroyed = true;
-                            }
-                            else if( !( ((InvIngredient *)io->extra)->type >= INGR_WHITE_SHARD && ((InvIngredient *)io->extra)->type <= INGR_PINK_SHARD ) || !shardDestroyed )
-                            {
-                                if( ( ((InvIngredient *)io->extra)->type >= INGR_WHITE_SHARD && ((InvIngredient *)io->extra)->type <= INGR_PINK_SHARD ) )
-                                    shardDestroyed = true;
+									charInfoArray[curCharacterIndex].workbench->objects.Remove(io);
+									delete io;
+								}
+							}
+						}
+						else
+						{					// we remove the staffs instead.
+							if (INVOBJ_STAFF == io->type)
+							{
+								charInfoArray[curCharacterIndex].workbench->objects.Remove(io);
+								delete io;
+							}
 
-                                charInfoArray[curCharacterIndex].workbench->objects.Remove(io);
-                                delete io;
-                            }
-                        }
+						}
                         io = (InventoryObject *) charInfoArray[curCharacterIndex].workbench->objects.Next();
                     }
 
                     //6)	The name of the sword is a fusion of the 
                     //    first and second ingot types, 
-                    //    and the size (Carbon-Zinc Short Sword),
-                    if (candidate2 > -1)
-                    {
-                        sscanf (ingotNames[candidate],"%s", &(tempText[0]));
-                        sprintf(&(tempText[strlen(tempText)]), "-");
-                        sscanf (ingotNames[candidate2],"%s", &(tempText[strlen(tempText)]));
-                    }
-                    else
-                    {
-                        sscanf (ingotNames[candidate],"%s", &(tempText[0]));
-                    }
-                    sprintf(&(tempText[strlen(tempText)]), " ");
+                    //    and the size (Carbon-Zinc Short Sword), for, no scythes
+					if (strcmp(combineSkillName, "Scythe Expertise")) 
+					{
+						if (candidate2 > -1)
+						{
+							sscanf(ingotNames[candidate], "%s", &(tempText[0]));
+							sprintf(&(tempText[strlen(tempText)]), "-");
+							sscanf(ingotNames[candidate2], "%s", &(tempText[strlen(tempText)]));
+						}
+						else
+						{
+							sscanf(ingotNames[candidate], "%s", &(tempText[0]));
+						}
+					}
+					else
+					{
+						// we instead grab the ingot name from the main ingot names area
+						sscanf(ingotNameList[candidate], "%s", &(tempText[0]));
+						// and then print in the staff type
+						if (staffimbuetype>0) // omgwtf
+						{
+							sprintf(&(tempText[strlen(tempText)]), " ");
+							sprintf(&(tempText[strlen(tempText)]), staffTypeName[staffimbuetype]);
+						}
+						if (prevstafftype > 12)
+						{
+							prevstafftype = prevstafftype - 6; // correct for gap left by din staffs;
+						}
+
+					}
+					sprintf(&(tempText[strlen(tempText)]), " ");
 
                     int candidate3 = 3, most3 = 0;
-                    for (int j = 0; j < 3; ++j)
-                    {
-                        if (katanaList[j].size > numIngots)
-                        {
-                            candidate3 = j-1;
-                            j = 4;
-                        }
-                    }
+					if (strcmp(combineSkillName, "Scythe Expertise")) // if we aren't making a scythe
+					{                                                 // determine size from number of ingots.
+						for (int j = 0; j < 3; ++j)
+						{
+							if (katanaList[j].size > numIngots)
+							{
+								candidate3 = j - 1;
+								j = 4;
+							}
+						}
 
-                    if (candidate3 < 0)
-                        candidate3 = 0;
-                    if (candidate3 > 2)
-                        candidate3 = 2;
-
-                    if (!strcmp(combineSkillName,"Katana Expertise")     )
+						if (candidate3 < 0)
+							candidate3 = 0;
+						if (candidate3 > 2)
+							candidate3 = 2;
+					}
+					else  // it IS a scythe
+					{   // we determine it from wood quality.
+						candidate3 = prevstaffquality;
+					}
+					// and add the type of staff to the name if it's a scythe;
+                   if (!strcmp(combineSkillName,"Katana Expertise")     )
                         sprintf(&(tempText[strlen(tempText)]), katanaList[candidate3].name);
                     else if (!strcmp(combineSkillName,"Claw Expertise")       )
                         sprintf(&(tempText[strlen(tempText)]), clawList[candidate3].name);
                     else if (!strcmp(combineSkillName,"Chaos Expertise")      )
                         sprintf(&(tempText[strlen(tempText)]), chaosList[candidate3].name);
                     else if (!strcmp(combineSkillName,"Bladestaff Expertise") )
-                        sprintf(&(tempText[strlen(tempText)]), bladestaffList[candidate3].name);
-                    else if (!strcmp(combineSkillName,"Mace Expertise")       )
-                        sprintf(&(tempText[strlen(tempText)]), maceList[candidate3].name);
+						sprintf(&(tempText[strlen(tempText)]), bladestaffList[candidate3].name);
+					else if (!strcmp(combineSkillName, "Mace Expertise"))
+						sprintf(&(tempText[strlen(tempText)]), maceList[candidate3].name);
+					else if (!strcmp(combineSkillName, "Scythe Expertise"))
+						sprintf(&(tempText[strlen(tempText)]), scytheList[candidate3].name);
 
                     // make the new blade!
                     io = new InventoryObject(INVOBJ_BLADE,0,tempText);
                     InvBlade *ib = (InvBlade *) io->extra; 
 
                     //7)	The damage of the sword is the average damage value of all ingots * the size base damage
-                    ib->damageDone = allDamage * katanaList[candidate3].damage / numIngots / 2;
-                    ib->damageDone += ((InvBlade *)oldBlade->extra)->damageDone/2;
-
-                    // the 20 is the katana's special enhancement
+					if (strcmp(combineSkillName, "Scythe Expertise"))
+					{
+						ib->damageDone = allDamage * katanaList[candidate3].damage / numIngots / 2;
+						ib->damageDone += ((InvBlade *)oldBlade->extra)->damageDone / 2;
+					}
+					else // it's a scythe, just copy the old blades over, you can't use a half of a staff.
+						ib->damageDone = ((InvBlade *)oldBlade->extra)->damageDone;
+					// the 20 is the katana's special enhancement
                     ib->toHit = dustAmount[INGR_BLUE_DUST] + ((InvBlade *)oldBlade->extra)->toHit;
                     ib->size = 1.0 + (numIngots + 32) / 16.0f;
-                    ib->size *= 0.7f;
+					if ((ib->size > 5.0f) && (!strcmp(combineSkillName, "Scythe Expertise"))) // if the scythe would be too big
+					{
+						int staffcount = ib->size / 32;
+						ib->size = staffcount+4.0f;
+						if (ib->size > 25.0f)
+							ib->size = 25.0f;
+					}
+					if (strcmp(combineSkillName, "Scythe Expertise")) // if not a scythe
+						ib->size *= 0.7f;
                     
+					if (strcmp(combineSkillName, "Scythe Expertise")) // if we aren't making a scythe
+					{												  // add in the ingots we used.
+						ib->tinIngots = ingotAmount2[0] + ((InvBlade *)oldBlade->extra)->tinIngots;
+						ib->aluminumIngots = ingotAmount2[1] + ((InvBlade *)oldBlade->extra)->aluminumIngots;
+						ib->steelIngots = ingotAmount2[2] + ((InvBlade *)oldBlade->extra)->steelIngots;
+						ib->carbonIngots = ingotAmount2[3] + ((InvBlade *)oldBlade->extra)->carbonIngots;
+						ib->zincIngots = ingotAmount2[4] + ((InvBlade *)oldBlade->extra)->zincIngots;
+						ib->adamIngots = ingotAmount2[5] + ((InvBlade *)oldBlade->extra)->adamIngots;
+						ib->mithIngots = ingotAmount2[6] + ((InvBlade *)oldBlade->extra)->mithIngots;
+						ib->vizIngots = ingotAmount2[7] + ((InvBlade *)oldBlade->extra)->vizIngots;
+						ib->elatIngots = ingotAmount2[8] + ((InvBlade *)oldBlade->extra)->elatIngots;
+						ib->chitinIngots = ingotAmount2[9] + ((InvBlade *)oldBlade->extra)->chitinIngots;
+						ib->maligIngots = ingotAmount2[10] + ((InvBlade *)oldBlade->extra)->maligIngots;
+						ib->tungstenIngots = ingotAmount2[11] + ((InvBlade *)oldBlade->extra)->tungstenIngots;
+						ib->titaniumIngots = ingotAmount2[12] + ((InvBlade *)oldBlade->extra)->titaniumIngots;
+						ib->azraelIngots = ingotAmount2[13] + ((InvBlade *)oldBlade->extra)->azraelIngots;
+						ib->chromeIngots = ingotAmount2[14] + ((InvBlade *)oldBlade->extra)->chromeIngots;
+					}
+					else // we instead add in the right number for the quality of teh staff
+					{   // first we decide number of ingots
+						int scytheingotshack;
+						if (prevstaffquality == 0)
+							scytheingotshack = 1;
+						if (prevstaffquality == 1)
+							scytheingotshack = 2;
+						if (prevstaffquality == 2)
+							scytheingotshack = 4;
+						if (prevstaffquality == 3)
+							scytheingotshack = 8;
+						if (prevstaffquality == 4)
+							scytheingotshack = 16;
+						if (prevstaffquality == 5)
+							scytheingotshack = 32;
+						// then add it to the correct ingot.
+						if (ingotforstaffeffect == 0)
+						{
+							ib->tinIngots = scytheingotshack + ((InvBlade *)oldBlade->extra)->tinIngots;
+						}
+						if (ingotforstaffeffect == 1)
+						{
+							ib->aluminumIngots = scytheingotshack + ((InvBlade *)oldBlade->extra)->aluminumIngots;
+						}
+						if (ingotforstaffeffect == 2)
+						{
+							ib->steelIngots = scytheingotshack + ((InvBlade *)oldBlade->extra)->steelIngots;
+						}
+						if (ingotforstaffeffect == 3)
+						{
+							ib->carbonIngots = scytheingotshack + ((InvBlade *)oldBlade->extra)->carbonIngots;
+						}
+						if (ingotforstaffeffect == 4)
+						{
+							ib->zincIngots = scytheingotshack + ((InvBlade *)oldBlade->extra)->zincIngots;
+						}
+						if (ingotforstaffeffect == 5)
+						{
+							ib->adamIngots = scytheingotshack + ((InvBlade *)oldBlade->extra)->adamIngots;
+						}
+						if (ingotforstaffeffect == 6)
+						{
+							ib->mithIngots = scytheingotshack + ((InvBlade *)oldBlade->extra)->mithIngots;
+						}
+						if (ingotforstaffeffect == 7)
+						{
+							ib->vizIngots = scytheingotshack + ((InvBlade *)oldBlade->extra)->vizIngots;
+						}
+						if (ingotforstaffeffect == 8)
+						{
+							ib->elatIngots = scytheingotshack + ((InvBlade *)oldBlade->extra)->elatIngots;
+						}
+						if (ingotforstaffeffect == 9)
+						{
+							ib->chitinIngots = scytheingotshack + ((InvBlade *)oldBlade->extra)->chitinIngots;
+						}
+						if (ingotforstaffeffect == 10)
+						{
+							ib->maligIngots = scytheingotshack + ((InvBlade *)oldBlade->extra)->maligIngots;
+						}
+						if (ingotforstaffeffect == 11)
+						{
+							ib->tungstenIngots = scytheingotshack + ((InvBlade *)oldBlade->extra)->tungstenIngots;
+						}
+						if (ingotforstaffeffect == 12)
+						{
+							ib->titaniumIngots = scytheingotshack + ((InvBlade *)oldBlade->extra)->titaniumIngots;
+						}
+						if (ingotforstaffeffect == 13)
+						{
+							ib->azraelIngots = scytheingotshack + ((InvBlade *)oldBlade->extra)->azraelIngots;
+						}
+						if (ingotforstaffeffect == 14)
+						{
+							ib->chromeIngots = scytheingotshack + ((InvBlade *)oldBlade->extra)->chromeIngots;
+						}
 
-                    ib->tinIngots = ingotAmount2[0] + ((InvBlade *)oldBlade->extra)->tinIngots;
-                    ib->aluminumIngots = ingotAmount2[1] + ((InvBlade *)oldBlade->extra)->aluminumIngots;
-                    ib->steelIngots = ingotAmount2[2] + ((InvBlade *)oldBlade->extra)->steelIngots;
-                    ib->carbonIngots = ingotAmount2[3] + ((InvBlade *)oldBlade->extra)->carbonIngots;
-                    ib->zincIngots = ingotAmount2[4] + ((InvBlade *)oldBlade->extra)->zincIngots;
-                    ib->adamIngots = ingotAmount2[5] + ((InvBlade *)oldBlade->extra)->adamIngots;
-                    ib->mithIngots = ingotAmount2[6] + ((InvBlade *)oldBlade->extra)->mithIngots;
-                    ib->vizIngots = ingotAmount2[7] + ((InvBlade *)oldBlade->extra)->vizIngots;
-                    ib->elatIngots = ingotAmount2[8] + ((InvBlade *)oldBlade->extra)->elatIngots;
-                    ib->chitinIngots = ingotAmount2[9] + ((InvBlade *)oldBlade->extra)->chitinIngots;
-                    ib->maligIngots = ingotAmount2[10] + ((InvBlade *)oldBlade->extra)->maligIngots;
-
-
+					}
+					int cappedNumOfHits = ((InvBlade *)oldBlade->extra)->numOfHits;
+					if (cappedNumOfHits > 22000)
+						cappedNumOfHits = 22000;
                     // Okay, here's the REAL reason to make a specialized weapon
-                    ib->damageDone = ib->damageDone * (1.0f + 
-                        (((InvBlade *)oldBlade->extra)->numOfHits / 22000.0 * 1.0f));
+					if (strcmp(combineSkillName, "Scythe Expertise")) // if we aren't making a scythe
+						ib->damageDone = ib->damageDone * (1.0f +
+                        (cappedNumOfHits / 22000.0 * 1.0f));
 
                     // weapon specializiations...
                     if (!strcmp(combineSkillName,"Katana Expertise")     )
@@ -3523,11 +4846,16 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                     {
                         ib->type = BLADE_TYPE_CHAOS;
                     }
-                    else if (!strcmp(combineSkillName,"Bladestaff Expertise") )
-                    {
-                        ib->type = BLADE_TYPE_DOUBLE;
-                    }
-                    else if (!strcmp(combineSkillName,"Mace Expertise")       )
+					else if (!strcmp(combineSkillName, "Bladestaff Expertise"))
+					{
+						ib->type = BLADE_TYPE_DOUBLE;
+					}
+					else if (!strcmp(combineSkillName, "Scythe Expertise"))
+					{
+						ib->type = BLADE_TYPE_SCYTHE+prevstafftype; // for uninbued the prevstafftype will be zero, which is fire, which is not allowed, so math works.
+						ib->numOfHits = chargecount;                // scythes don't age, isntead age counter is used to store number of charges.
+					}
+					else if (!strcmp(combineSkillName,"Mace Expertise")       )
                     {
                         ib->type = BLADE_TYPE_MACE;
                         ib->damageDone += 30;
@@ -3541,12 +4869,19 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                     ib->r = allR / numIngots;
                     ib->g = allG / numIngots;
                     ib->b = allB / numIngots;
+					if (!strcmp(combineSkillName, "Scythe Expertise")) // but if it's a scythe
+					{													// then instead copy the old blades color
+						ib->r = ((InvBlade *)oldBlade->extra)->r;
+						ib->g = ((InvBlade *)oldBlade->extra)->g;
+						ib->b = ((InvBlade *)oldBlade->extra)->b;
 
+					}
                     ib->poison = dustAmount[INGR_BLACK_DUST] + ((InvBlade *)oldBlade->extra)->poison;
                     ib->heal   = dustAmount[INGR_GREEN_DUST] + ((InvBlade *)oldBlade->extra)->heal;
                     ib->slow   = dustAmount[INGR_RED_DUST]   + ((InvBlade *)oldBlade->extra)->slow;
                     ib->blind  = dustAmount[INGR_WHITE_DUST] + ((InvBlade *)oldBlade->extra)->blind;
-                    ib->lightning  = dustAmount[INGR_SILVER_DUST] + ((InvBlade *)oldBlade->extra)->lightning;
+					ib->lightning = dustAmount[INGR_SILVER_DUST] + ((InvBlade *)oldBlade->extra)->lightning;
+					ib->tame = dustAmount[INGR_GOLD_DUST] + ((InvBlade *)oldBlade->extra)->tame;
 
                     int mostIngr = -1, ingrCount = 0;
                     if (ib->poison > ingrCount)
@@ -3620,7 +4955,10 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                         ib->bladeGlamourType = BLADE_GLAMOUR_TRAILWHITE + shardIndex;
                         ib->damageDone += ib->damageDone/10;
                     }
-
+					// for scythe, copy the existign blade glamour on if there was a shard
+					if (!strcmp(combineSkillName, "Scythe Expertise")) // if it is a scythe
+						if (((InvBlade *)oldBlade->extra)->bladeGlamourType>= BLADE_GLAMOUR_TRAILWHITE) // if it had a trail
+							ib->bladeGlamourType = ((InvBlade *)oldBlade->extra)->bladeGlamourType;               // keep it
                     sprintf(tempText,"You have created a");
                     CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
                     
@@ -3687,9 +5025,9 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                 }
 
                 // In any case, you get skill sub-points for that skill.
-                if( skillInfo->skillLevel < 1000 && challenge > work / 50 )
+                if( skillInfo->skillLevel < 1500 && challenge > work / 50 )
                 {
-                    skillInfo->skillPoints += work;
+                    skillInfo->skillPoints += work* bboServer->smith_exp_multiplier;
 
                     if (skillInfo->skillLevel * skillInfo->skillLevel * 3000 <= skillInfo->skillPoints)
                     {
@@ -3788,8 +5126,9 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                 numFuses += io->amount;
                 fuseQuality += ingre->quality * io->amount;
 //				challenge -= ingre->quality;
-                charInfoArray[curCharacterIndex].workbench->objects.Last();
-            }
+//				charInfoArray[curCharacterIndex].workbench->objects.Last();
+			//	charInfoArray[curCharacterIndex].workbench->objects.Next(); // use both ropes and twisted papers in difficulty calculation and fuse length
+			}
 
             io = (InventoryObject *) charInfoArray[curCharacterIndex].workbench->objects.Next();
         }
@@ -3886,7 +5225,7 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                 sprintf(tempText,"%s Bomb", bombSizeNames[size]);
 
                 io = new InventoryObject(INVOBJ_BOMB,0,tempText);
-                charInfoArray[curCharacterIndex].inventory->objects.Prepend(io);
+				charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
                 InvBomb *ib = (InvBomb *) io->extra; 
 
                 ib->power = allPower;
@@ -3898,10 +5237,10 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                     ib->stability = 0;
                 if (ib->stability > 1)
                 {
-                    if (ib->stability > 5)
-                        getsEXP = FALSE;
                     ib->stability = 1;
                 }
+				if (ib->fuseDelay < 1) // no fuse
+					ib->stability = 1; // then stability doesn't matter
                 io->value = allPower * 2.0f;
 
                 // color
@@ -3920,7 +5259,7 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                 // If successful, you get skill sub-points for that skill.
 //				if (getsEXP)
 //					skillInfo->skillPoints += 10 * (1.0f-ib->stability) + 5;
-                skillInfo->skillPoints += challenge*2/3;
+                skillInfo->skillPoints += challenge* bboServer->bombing_exp_multiplier;
 
                 if (skillInfo->skillLevel * skillInfo->skillLevel * 100 <= skillInfo->skillPoints)
                 {
@@ -4037,11 +5376,15 @@ void BBOSAvatar::Combine(SharedSpace *ss)
             if (ib->bladeGlamourType >= BLADE_GLAMOUR_TRAILWHITE)
                  damDone = damDone * 10 / 11;
 
-            if (BLADE_TYPE_MACE == ib->type)
-                damDone -= 30;
+			if (BLADE_TYPE_MACE == ib->type)
+				damDone -= 30;
 
             float challenge = (1+ingotCount) * (2+type1) * (1+ib->poison/5) * 
-                               (1+ib->slow/5) * (1+ib->blind/5) * (1+ib->heal/5);
+                               (1+ib->slow/5) * (1+ib->blind/5) * (1+ib->heal/5)* (1+ib->tame); // gold dust vastly increases complexity now.
+
+			if (BLADE_TYPE_SCYTHE == ib->type)
+				float challenge = (1 + ingotCount) * (2 + type1) * (1 + ib->poison / 5) *
+				(1 + ib->slow / 5) * (1 + ib->blind / 5) * (1 + ib->heal / 5); // but not on a scythe.
 
 
             //5)	IF the task is successful,
@@ -4100,247 +5443,640 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                 
                 ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
 
-                // generate some ingots
-                int ingotsReturned = work/5/challenge * ingotCount;
-                ingotsReturned = Bracket(ingotsReturned,
-                                          (int)(ingotCount * 0.5f), (int)(ingotCount * 0.9f));
+				if ((ib->type > BLADE_TYPE_DOUBLE)) // it's a scythe
+				{  // drop ingot counts to 64
+					ib->chromeIngots = Bracket(ib->chromeIngots, 0, 64);
+					ib->azraelIngots = Bracket(ib->azraelIngots, 0, 64);
+					ib->titaniumIngots = Bracket(ib->titaniumIngots, 0, 64);
+					ib->tungstenIngots = Bracket(ib->tungstenIngots, 0, 64);
+					ib->maligIngots = Bracket(ib->maligIngots, 0, 64);
+					ib->chitinIngots = Bracket(ib->chitinIngots, 0, 64);
+					ib->elatIngots = Bracket(ib->elatIngots, 0, 64);
+					ib->vizIngots = Bracket(ib->vizIngots, 0, 64);
+					ib->mithIngots = Bracket(ib->mithIngots, 0, 64);
+					ib->adamIngots = Bracket(ib->adamIngots, 0, 64);
+					ib->zincIngots = Bracket(ib->zincIngots, 0, 64);
+					ib->carbonIngots = Bracket(ib->carbonIngots, 0, 64);
+					ib->steelIngots = Bracket(ib->steelIngots, 0, 64);
+					ib->aluminumIngots = Bracket(ib->aluminumIngots, 0, 64);
+					ib->tinIngots = Bracket(ib->tinIngots, 0, 64);
+				}
+				if ((ib->type > BLADE_TYPE_DOUBLE) && ((work / 15 / challenge) >= 1)) // it's a scythe and our wv was good enough to get a shard omg
+				{   // we can get out GS back.
+					// last check will catch my first scythe.
+					// copy the blade. 
+					int numIngots = 64; // was a greatsword before, which requires 64 ingots
+					int mostingots = 1; // 0 ingots don't count for renaming
+					int mostingots2 = -1;
+					int candidate = -1;
+					int candidate2 = -1;
+					// find most common.
+					if (ib->tinIngots >= mostingots)
+					{
+						mostingots2 = mostingots;
+						candidate2 = candidate;
+						candidate = 0;
+						mostingots = ib->tinIngots;
+					}
+					if (ib->aluminumIngots >= mostingots)
+					{
+						mostingots2 = mostingots;
+						candidate2 = candidate;
+						candidate = 1;
+						mostingots = ib->aluminumIngots;
+					}
+					if (ib->steelIngots >= mostingots)
+					{
+						mostingots2 = mostingots;
+						candidate2 = candidate;
+						candidate = 2;
+						mostingots = ib->steelIngots;
+					}
+					if (ib->carbonIngots >= mostingots)
+					{
+						mostingots2 = mostingots;
+						candidate2 = candidate;
+						candidate = 3;
+						mostingots = ib->carbonIngots;
+					}
+					if (ib->zincIngots >= mostingots)
+					{
+						mostingots2 = mostingots;
+						candidate2 = candidate;
+						candidate = 4;
+						mostingots = ib->zincIngots;
+					}
+					if (ib->adamIngots >= mostingots)
+					{
+						mostingots2 = mostingots;
+						candidate2 = candidate;
+						candidate = 5;
+						mostingots = ib->adamIngots;
+					}
+					if (ib->mithIngots >= mostingots)
+					{
+						mostingots2 = mostingots;
+						candidate2 = candidate;
+						candidate = 6;
+						mostingots = ib->mithIngots;
+					}
+					if (ib->vizIngots >= mostingots)
+					{
+						mostingots2 = mostingots;
+						candidate2 = candidate;
+						candidate = 7;
+						mostingots = ib->vizIngots;
+					}
+					if (ib->elatIngots >= mostingots)
+					{
+						mostingots2 = mostingots;
+						candidate2 = candidate;
+						candidate = 8;
+						mostingots = ib->elatIngots;
+					}
+					if (ib->chitinIngots >= mostingots)
+					{
+						mostingots2 = mostingots;
+						candidate2 = candidate;
+						candidate = 9;
+						mostingots = ib->chitinIngots;
+					}
+					if (ib->maligIngots >= mostingots)
+					{
+						mostingots2 = mostingots;
+						candidate2 = candidate;
+						candidate = 10;
+						mostingots = ib->maligIngots;
+					}
+					if (ib->tungstenIngots >= mostingots)
+					{
+						mostingots2 = mostingots;
+						candidate2 = candidate;
+						candidate = 11;
+						mostingots = ib->tungstenIngots;
+					}
+					if (ib->titaniumIngots >= mostingots)
+					{
+						mostingots2 = mostingots;
+						candidate2 = candidate;
+						candidate = 12;
+						mostingots = ib->titaniumIngots;
+					}
+					if (ib->azraelIngots >= mostingots)
+					{
+						mostingots2 = mostingots;
+						candidate2 = candidate;
+						candidate = 13;
+						mostingots = ib->azraelIngots;
+					}
+					if (ib->chromeIngots >= mostingots)
+					{
+						mostingots2 = mostingots;
+						candidate2 = candidate;
+						candidate = 14;
+						mostingots = ib->chromeIngots;
+					}
+					// then backtrack to find second most, if it's after most.
+					if ((ib->chromeIngots > mostingots2) && (candidate != 14)) // if it's not already the most
+					{
+						candidate2 = 14;
+						mostingots2 = ib->chromeIngots;
+					}
+					if ((ib->azraelIngots > mostingots2) && (candidate != 13)) // if it's not already the most
+					{
+						candidate2 = 13;
+						mostingots2 = ib->azraelIngots;
+					}
+					if ((ib->titaniumIngots > mostingots2) && (candidate != 12)) // if it's not already the most
+					{
+						candidate2 = 12;
+						mostingots2 = ib->titaniumIngots;
+					}
+					if ((ib->tungstenIngots > mostingots2) && (candidate != 11)) // if it's not already the most
+					{
+						candidate2 = 11;
+						mostingots2 = ib->tungstenIngots;
+					}
+					if ((ib->maligIngots > mostingots2) && (candidate != 10)) // if it's not already the most
+					{
+						candidate2 = 10;
+						mostingots2 = ib->maligIngots;
+					}
+					if ((ib->chitinIngots > mostingots2) && (candidate != 9)) // if it's not already the most
+					{
+						candidate2 = 9;
+						mostingots2 = ib->chitinIngots;
+					}
+					if ((ib->elatIngots > mostingots2) && (candidate != 8)) // if it's not already the most
+					{
+						candidate2 = 8;
+						mostingots2 = ib->elatIngots;
+					}
+					if ((ib->vizIngots > mostingots2) && (candidate != 7)) // if it's not already the most
+					{
+						candidate2 = 7;
+						mostingots2 = ib->vizIngots;
+					}
+					if ((ib->mithIngots > mostingots2) && (candidate != 6)) // if it's not already the most
+					{
+						candidate2 = 6;
+						mostingots2 = ib->mithIngots;
+					}
+					if ((ib->adamIngots > mostingots2) && (candidate != 5)) // if it's not already the most
+					{
+						candidate2 = 5;
+						mostingots2 = ib->adamIngots;
+					}
+					if ((ib->zincIngots > mostingots2) && (candidate != 4)) // if it's not already the most
+					{
+						candidate2 = 4;
+						mostingots2 = ib->zincIngots;
+					}
+					if ((ib->carbonIngots > mostingots2) && (candidate != 3)) // if it's not already the most
+					{
+						candidate2 = 3;
+						mostingots2 = ib->carbonIngots;
+					}
+					if ((ib->steelIngots > mostingots2) && (candidate != 2)) // if it's not already the most
+					{
+						candidate2 = 2;
+						mostingots2 = ib->steelIngots;
+					}
+					if ((ib->aluminumIngots > mostingots2) && (candidate != 1)) // if it's not already the most
+					{
+						candidate2 = 1;
+						mostingots2 = ib->aluminumIngots;
+					}
+					if ((ib->tinIngots > mostingots2) && (candidate != 0)) // if it's not already the most
+					{
+						candidate2 = 0;
+						mostingots2 = ib->tinIngots;
+					}
+					if (candidate < 0) // this must be My First Scythe
+					{
+						// then fix it
+						candidate = 0;
+						ib->tame = 0; // bye bye dusts.
+						ib->toHit = 1;
+					}
+					// now we can recreate the name
+					if (candidate2 > -1)
+					{
+						sscanf(ingotNameList[candidate], "%s", &(tempText[0]));
+						sprintf(&(tempText[strlen(tempText)]), "-");
+						sscanf(ingotNameList[candidate2], "%s", &(tempText[strlen(tempText)]));
+					}
+					else
+					{
+						sscanf(ingotNameList[candidate], "%s", &(tempText[0]));
+					}
+					sprintf(&(tempText[strlen(tempText)]), " ");
 
-                int ingotsReturnedArray[25];
-                for (int i = 0; i < 25; ++i)
-                    ingotsReturnedArray[i] = 0;
+					int candidate3 = 6, most3 = 0;
+					for (int j = 0; j < 6; ++j)
+					{
+						if (bladeList[j].size > numIngots)
+						{
+							candidate3 = j - 1;
+							j = 7;
+						}
+					}
 
-                ib->maligIngots = ib->maligIngots * 0.8;
-                ib->chitinIngots = ib->chitinIngots * 0.8;
-                ib->elatIngots = ib->elatIngots * 0.8;
-                ib->vizIngots = ib->vizIngots * 0.8;
-                ib->mithIngots = ib->mithIngots * 0.8;
-                ib->adamIngots = ib->adamIngots * 0.8;
-                ib->zincIngots = ib->zincIngots * 0.8;
-                ib->carbonIngots = ib->carbonIngots * 0.8;
-                ib->steelIngots = ib->steelIngots * 0.8;
-                ib->aluminumIngots = ib->aluminumIngots * 0.8;
-                ib->tinIngots = ib->tinIngots * 0.8;
+					if (candidate3 < 0)
+						candidate3 = 0;
+					if (candidate3 > 5)
+						candidate3 = 5;
 
-                for (int i = 0; i < ingotsReturned; ++i)
-                {
-                    int ingotVal;
+					sprintf(&(tempText[strlen(tempText)]), bladeList[candidate3].name);
 
-                    if( ib->maligIngots )
-                    {
-                        ingotVal = 11;
-                        --(ib->maligIngots);
-                    }
-                    else if( ib->chitinIngots )
-                    {
-                        ingotVal = 10;
-                        --(ib->chitinIngots);
-                    }
-                    else if( ib->elatIngots )
-                    {
-                        ingotVal = 9;
-                        --(ib->elatIngots);
-                    }
-                    else if( ib->vizIngots )
-                    {
-                        ingotVal = 8;
-                        --(ib->vizIngots);
-                    }
-                    else if( ib->mithIngots )
-                    {
-                        ingotVal = 7;
-                        --(ib->mithIngots);
-                    }
-                    else if( ib->adamIngots )
-                    {
-                        ingotVal = 6;
-                        --(ib->adamIngots);
-                    }
-                    else if( ib->zincIngots )
-                    {
-                        ingotVal = 5;
-                        --(ib->zincIngots);
-                    }
-                    else if( ib->carbonIngots )
-                    {
-                        ingotVal = 4;
-                        --(ib->carbonIngots);
-                    }
-                    else if( ib->steelIngots )
-                    {
-                        ingotVal = 3;
-                        --(ib->steelIngots);
-                    }
-                    else if( ib->aluminumIngots )
-                    {
-                        ingotVal = 2;
-                        --(ib->aluminumIngots);
-                    }
-                    else if( ib->tinIngots )
-                    {
-                        ingotVal = 1;
-                        --(ib->tinIngots);
-                    }
-                    else
-                        break;
+					// make the old blade! 
+					InventoryObject *io2 = new InventoryObject(INVOBJ_BLADE, 0, tempText);
+					InvBlade *ib2 = (InvBlade *)io2->extra;
 
-                    sprintf(tempText,"%s Ingot", ingotNameList[ingotVal-1]);
-                    io = new InventoryObject(INVOBJ_INGOT,0, tempText);
-                    InvIngot *exIngot = (InvIngot *)io->extra;
-                    exIngot->damageVal = ingotVal;
-                    exIngot->challenge = ingotVal;
-                    exIngot->r = ingotRGBList[ingotVal-1][0];
-                    exIngot->g = ingotRGBList[ingotVal-1][1];
-                    exIngot->b = ingotRGBList[ingotVal-1][2];
+					//7)	The damage of the sword is the damage value of the scythe
+					ib2->damageDone = ib->damageDone;
 
-                    io->mass = 1.0f;
-                    io->value = ingotValueList[ingotVal-1];
-                    io->amount = 1;
+					//8)	The value of the sword is the sme one the scythe had
+					io2->value = weapon->value;
 
-                    ++ingotsReturnedArray[ingotVal-1];
+					//9)	The color of the sword blade is the same as the scythe had.
+					ib2->r = ib->r;
+					ib2->g = ib->g;
+					ib2->b = ib->b;
+					// and same tohit 
+					ib2->toHit = ib->toHit;
+					// size 5
+					ib2->size = 5.0f; // it was a greatsword before.
+					// and same dusts
+					ib2->poison = ib->poison;
+					ib2->heal = ib->heal;
+					ib2->slow = ib->slow;
+					ib2->blind = ib->blind;
+					ib2->lightning = ib->lightning;
+					ib2->tame = ib->tame;
 
-                    charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
-                }
+					// and same ingots
+					ib2->tinIngots = ib->tinIngots;
+					ib2->aluminumIngots = ib->aluminumIngots;
+					ib2->steelIngots = ib->steelIngots;
+					ib2->carbonIngots = ib->carbonIngots;
+					ib2->zincIngots = ib->zincIngots;
+					ib2->adamIngots = ib->adamIngots;
+					ib2->mithIngots = ib->mithIngots;
+					ib2->vizIngots = ib->vizIngots;
+					ib2->elatIngots = ib->elatIngots;
+					ib2->chitinIngots = ib->chitinIngots;
+					ib2->maligIngots = ib->maligIngots;
+					ib2->tungstenIngots = ib->tungstenIngots;
+					ib2->titaniumIngots = ib->titaniumIngots;
+					ib2->azraelIngots = ib->azraelIngots;
+					ib2->chromeIngots = ib->chromeIngots;
 
-                for (int i = 0; i < 25; ++i)
-                {
-                    if (ingotsReturnedArray[i] > 0)
-                    {
-                        sprintf(tempText,"You recover %d %s Ingots.", 
-                                 ingotsReturnedArray[i], ingotNameList[i]);
-                        CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
-                        ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-                    }
-                }
+					// and same glamour
+					ib2->bladeGlamourType = ib->bladeGlamourType;
 
-                // generate some dust
-                int gotDust = FALSE;
-                float dustReturned = Bracket( (int)(work/10/challenge * ib->blind),
-                                            (int)(ib->blind*0.3f), (int)(ib->blind*0.9f));
-                if (dustReturned >= 1)
-                {
-                    io = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing White Dust");
-                    InvIngredient *exIn = (InvIngredient *)io->extra;
-                    exIn->type     = INGR_WHITE_DUST;
-                    exIn->quality  = 1;
-                    io->mass = 0.0f;
-                    io->value = 1000;
-                    io->amount = dustReturned;
-                    charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
-                    gotDust = TRUE;
+					// and add it to your inventory
+					charInfoArray[curCharacterIndex].inventory->AddItemSorted(io2);
 
-                    sprintf(tempText,"You recover %d Glowing White Dust.", (int)dustReturned);
-                    CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
-                    ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-                }
+					//finally, print the message 
+					sprintf(tempText, "You have recovered the greatsword.");
+					CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+					ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+				}
+				else
+				{   // nomral dismantle, even if it is a scythe. the staff is lost eiter way.
+					// generate some ingots
+					int ingotsReturned = work / 5 / challenge * ingotCount;
+					ingotsReturned = Bracket(ingotsReturned,
+						(int)(ingotCount * 0.5f), (int)(ingotCount * 0.9f));
 
-                dustReturned = Bracket( (int)(work/10/challenge * ib->slow),
-                                            (int)(ib->slow*0.3f), (int)(ib->slow*0.9f));
-                if (dustReturned >= 1)
-                {
-                    io = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Red Dust");
-                    InvIngredient *exIn = (InvIngredient *)io->extra;
-                    exIn->type     = INGR_RED_DUST;
-                    exIn->quality  = 1;
-                    io->mass = 0.0f;
-                    io->value = 1000;
-                    io->amount = dustReturned;
-                    charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
-                    gotDust = TRUE;
+					int ingotsReturnedArray[25];
+					for (int i = 0; i < 25; ++i)
+						ingotsReturnedArray[i] = 0;
 
-                    sprintf(tempText,"You recover %d Glowing Red Dust.", (int)dustReturned);
-                    CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
-                    ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-                }
+					ib->chromeIngots = ib->chromeIngots * 0.8;
+					ib->azraelIngots = ib->azraelIngots * 0.8;
+					ib->titaniumIngots = ib->titaniumIngots * 0.8;
+					ib->tungstenIngots = ib->tungstenIngots * 0.8;
+					ib->maligIngots = ib->maligIngots * 0.8;
+					ib->chitinIngots = ib->chitinIngots * 0.8;
+					ib->elatIngots = ib->elatIngots * 0.8;
+					ib->vizIngots = ib->vizIngots * 0.8;
+					ib->mithIngots = ib->mithIngots * 0.8;
+					ib->adamIngots = ib->adamIngots * 0.8;
+					ib->zincIngots = ib->zincIngots * 0.8;
+					ib->carbonIngots = ib->carbonIngots * 0.8;
+					ib->steelIngots = ib->steelIngots * 0.8;
+					ib->aluminumIngots = ib->aluminumIngots * 0.8;
+					ib->tinIngots = ib->tinIngots * 0.8;
 
-                dustReturned = Bracket( (int)(work/10/challenge * ib->heal),
-                                            (int)(ib->heal*0.3f), (int)(ib->heal*0.9f));
-                if (dustReturned >= 1)
-                {
-                    io = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Green Dust");
-                    InvIngredient *exIn = (InvIngredient *)io->extra;
-                    exIn->type     = INGR_GREEN_DUST;
-                    exIn->quality  = 1;
-                    io->mass = 0.0f;
-                    io->value = 1000;
-                    io->amount = dustReturned;
-                    charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
-                    gotDust = TRUE;
+					for (int i = 0; i < ingotsReturned; ++i)
+					{
+						int ingotVal;
 
-                    sprintf(tempText,"You recover %d Glowing Green Dust.", (int)dustReturned);
-                    CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
-                    ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-                }
+						if (ib->chromeIngots)
+						{
+							ingotVal = 15;
+							--(ib->chromeIngots);
+						}
+						else if (ib->azraelIngots)
+						{
+							ingotVal = 14;
+							--(ib->azraelIngots);
+						}
+						else if (ib->titaniumIngots)
+						{
+							ingotVal = 13;
+							--(ib->titaniumIngots);
+						}
+						else if (ib->tungstenIngots)
+						{
+							ingotVal = 12;
+							--(ib->tungstenIngots);
+						}
+						else if (ib->maligIngots)
+						{
+							ingotVal = 11;
+							--(ib->maligIngots);
+						}
+						else if (ib->chitinIngots)
+						{
+							ingotVal = 10;
+							--(ib->chitinIngots);
+						}
+						else if (ib->elatIngots)
+						{
+							ingotVal = 9;
+							--(ib->elatIngots);
+						}
+						else if (ib->vizIngots)
+						{
+							ingotVal = 8;
+							--(ib->vizIngots);
+						}
+						else if (ib->mithIngots)
+						{
+							ingotVal = 7;
+							--(ib->mithIngots);
+						}
+						else if (ib->adamIngots)
+						{
+							ingotVal = 6;
+							--(ib->adamIngots);
+						}
+						else if (ib->zincIngots)
+						{
+							ingotVal = 5;
+							--(ib->zincIngots);
+						}
+						else if (ib->carbonIngots)
+						{
+							ingotVal = 4;
+							--(ib->carbonIngots);
+						}
+						else if (ib->steelIngots)
+						{
+							ingotVal = 3;
+							--(ib->steelIngots);
+						}
+						else if (ib->aluminumIngots)
+						{
+							ingotVal = 2;
+							--(ib->aluminumIngots);
+						}
+						else if (ib->tinIngots)
+						{
+							ingotVal = 1;
+							--(ib->tinIngots);
+						}
+						else
+							break;
 
-                dustReturned = Bracket( (int)(work/10/challenge * ib->poison),
-                                            (int)(ib->poison*0.3f), (int)(ib->poison*0.9f));
-                if (dustReturned >= 1)
-                {
-                    io = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Black Dust");
-                    InvIngredient *exIn = (InvIngredient *)io->extra;
-                    exIn->type     = INGR_BLACK_DUST;
-                    exIn->quality  = 1;
-                    io->mass = 0.0f;
-                    io->value = 1000;
-                    io->amount = dustReturned;
-                    charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
-                    gotDust = TRUE;
+						sprintf(tempText, "%s Ingot", ingotNameList[ingotVal - 1]);
+						io = new InventoryObject(INVOBJ_INGOT, 0, tempText);
+						InvIngot *exIngot = (InvIngot *)io->extra;
+						exIngot->damageVal = ingotVal;
+						exIngot->challenge = ingotVal;
+						exIngot->r = ingotRGBList[ingotVal - 1][0];
+						exIngot->g = ingotRGBList[ingotVal - 1][1];
+						exIngot->b = ingotRGBList[ingotVal - 1][2];
 
-                    sprintf(tempText,"You recover %d Glowing Black Dust.", (int)dustReturned);
-                    CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
-                    ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-                }
+						io->mass = 1.0f;
+						io->value = ingotValueList[ingotVal - 1];
+						io->amount = 1;
 
-                dustReturned = Bracket( (int)(work/10/challenge * (ib->toHit-20)),
-                                            (int)((ib->toHit-20)*0.2f), (int)((ib->toHit-20)*0.7f));
-                if (dustReturned >= 1)
-                {
-                    io = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Blue Dust");
-                    InvIngredient *exIn = (InvIngredient *)io->extra;
-                    exIn->type     = INGR_BLUE_DUST;
-                    exIn->quality  = 1;
-                    io->mass = 0.0f;
-                    io->value = 1000;
-                    io->amount = dustReturned;
-                    charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
-                    gotDust = TRUE;
+						++ingotsReturnedArray[ingotVal - 1];
 
-                    sprintf(tempText,"You recover %d Glowing Blue Dust.", (int)dustReturned);
-                    CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
-                    ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-                }
+						charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
+					}
+
+					for (int i = 0; i < 25; ++i)
+					{
+						if (ingotsReturnedArray[i] > 0)
+						{
+							sprintf(tempText, "You recover %d %s Ingots.",
+								ingotsReturnedArray[i], ingotNameList[i]);
+							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+						}
+					}
+					// generate some dust
+					int gotDust = FALSE;
+					int dustTotal = 0;
+					float dustReturned = Bracket((int)(work / 10 / challenge * ib->blind),
+						(int)(ib->blind*0.3f), (int)(ib->blind*0.9f));
+					dustTotal += ib->blind;
+					if (dustReturned >= 1)
+					{
+						io = new InventoryObject(INVOBJ_INGREDIENT, 0, "Glowing White Dust");
+						InvIngredient *exIn = (InvIngredient *)io->extra;
+						exIn->type = INGR_WHITE_DUST;
+						exIn->quality = 1;
+						io->mass = 0.0f;
+						io->value = 1000;
+						io->amount = dustReturned;
+						charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
+						gotDust = TRUE;
+
+						sprintf(tempText, "You recover %d Glowing White Dust.", (int)dustReturned);
+						CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+						ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+					}
+
+					dustReturned = Bracket((int)(work / 10 / challenge * ib->slow),
+						(int)(ib->slow*0.3f), (int)(ib->slow*0.9f));
+					dustTotal += ib->slow;
+					if (dustReturned >= 1)
+					{
+						io = new InventoryObject(INVOBJ_INGREDIENT, 0, "Glowing Red Dust");
+						InvIngredient *exIn = (InvIngredient *)io->extra;
+						exIn->type = INGR_RED_DUST;
+						exIn->quality = 1;
+						io->mass = 0.0f;
+						io->value = 1000;
+						io->amount = dustReturned;
+						charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
+						gotDust = TRUE;
+
+						sprintf(tempText, "You recover %d Glowing Red Dust.", (int)dustReturned);
+						CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+						ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+					}
+
+					dustReturned = Bracket((int)(work / 10 / challenge * ib->heal),
+						(int)(ib->heal*0.3f), (int)(ib->heal*0.9f));
+					dustTotal += ib->heal;
+					if (dustReturned >= 1)
+					{
+						io = new InventoryObject(INVOBJ_INGREDIENT, 0, "Glowing Green Dust");
+						InvIngredient *exIn = (InvIngredient *)io->extra;
+						exIn->type = INGR_GREEN_DUST;
+						exIn->quality = 1;
+						io->mass = 0.0f;
+						io->value = 1000;
+						io->amount = dustReturned;
+						charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
+						gotDust = TRUE;
+
+						sprintf(tempText, "You recover %d Glowing Green Dust.", (int)dustReturned);
+						CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+						ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+					}
+
+					dustReturned = Bracket((int)(work / 10 / challenge * ib->poison),
+						(int)(ib->poison*0.3f), (int)(ib->poison*0.9f));
+					dustTotal += ib->poison;
+					if (dustReturned >= 1)
+					{
+						io = new InventoryObject(INVOBJ_INGREDIENT, 0, "Glowing Black Dust");
+						InvIngredient *exIn = (InvIngredient *)io->extra;
+						exIn->type = INGR_BLACK_DUST;
+						exIn->quality = 1;
+						io->mass = 0.0f;
+						io->value = 1000;
+						io->amount = dustReturned;
+						charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
+						gotDust = TRUE;
+
+						sprintf(tempText, "You recover %d Glowing Black Dust.", (int)dustReturned);
+						CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+						ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+					}
+
+					dustReturned = Bracket((int)(work / 10 / challenge * ib->tame),
+						(int)(ib->tame*0.3f), (int)(ib->tame));  // can get 100% of gold back, and ONLY gold.
+					dustTotal += ib->tame;
+					if (dustReturned >= 1)
+					{
+						io = new InventoryObject(INVOBJ_INGREDIENT, 0, "Glowing Gold Dust");
+						InvIngredient *exIn = (InvIngredient *)io->extra;
+						exIn->type = INGR_GOLD_DUST;
+						exIn->quality = 1;
+						io->mass = 0.0f;
+						io->value = 1000;
+						io->amount = dustReturned;
+						charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
+						gotDust = TRUE;
+
+						sprintf(tempText, "You recover %d Glowing Gold Dust.", (int)dustReturned);
+						CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+						ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+					}
+
+					if (ib->type == BLADE_TYPE_KATANA)
+						dustReturned = Bracket((int)(work / 10 / challenge * (ib->toHit - 21)),
+						(int)((ib->toHit - 21)*0.2f), (int)((ib->toHit - 21)*0.7f));
+					else  // don't penalize total dust count for not using a tachi.
+						dustReturned = Bracket((int)(work / 10 / challenge * (ib->toHit - 1)),
+						(int)((ib->toHit - 1)*0.2f), (int)((ib->toHit - 1)*0.7f));
+					dustTotal += (int)dustReturned;
+					if (dustReturned >= 1)
+					{
+						io = new InventoryObject(INVOBJ_INGREDIENT, 0, "Glowing Blue Dust");
+						InvIngredient *exIn = (InvIngredient *)io->extra;
+						exIn->type = INGR_BLUE_DUST;
+						exIn->quality = 1;
+						io->mass = 0.0f;
+						io->value = 1000;
+						io->amount = dustReturned;
+						charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
+						gotDust = TRUE;
+
+						sprintf(tempText, "You recover %d Glowing Blue Dust.", (int)dustReturned);
+						CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+						ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+					}
+					dustTotal += ib->lightning; // also count silver dust even though you can never get it back.
 
 
-                // generate something special
+					// generate something special
 
-                dustReturned = Bracket( (int)(work/15/challenge), 0, 1);
+					dustReturned = Bracket((int)(work / 15 / challenge), 0, 1); // work value must be at least 15 * complexity for chance at shard. 
+					int chance = 0;
+					int chance2 = 0;
+					if (ib->numOfHits >= 22000)
+						chance = ((ib->numOfHits - 22000) / 2500) + 5;
+					//				if (ib->numOfHits >= 50000)
+					//					chance = 15;
+					if (dustTotal < 5)
+						chance = 0;
+					if (dustTotal > 14 && chance)
+						chance += 10;
+					chance2 = (rand() % 100 < chance);
+					if (dustReturned > 0 && ib->numOfHits >= 22000 && gotDust && chance2  && damDone >= 72)
+					{
+						int type = INGR_WHITE_SHARD + (rand() % 8);
+						io = new InventoryObject(
+							INVOBJ_INGREDIENT, 0, dustNames[type]);
+						InvIngredient *exIn = (InvIngredient *)io->extra;
+						exIn->type = type;
+						exIn->quality = 1;
 
-                int chance = (rand() % 10);
-                
-                if( dustReturned > 0 && ib->numOfHits >= 22000 && gotDust && chance == 1 && originalIngotCount >= 96 )
-                {
-                    int type = INGR_WHITE_SHARD + (rand() % 8);
-                    io = new InventoryObject(
-                                INVOBJ_INGREDIENT,0,dustNames[type]);
-                    InvIngredient *exIn = (InvIngredient *)io->extra;
-                    exIn->type     = type;
-                    exIn->quality  = 1;
+						io->mass = 0.0f;
+						io->value = 1000;
+						io->amount = 1;
+						charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
 
-                    io->mass = 0.0f;
-                    io->value = 1000;
-                    io->amount = 1;
-                    charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
-
-                    sprintf(tempText,"You find something special inside the weapon.");
-                    CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
-                    ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
+						sprintf(tempText, "You find something special inside the weapon.");
+						CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+						ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
 
 
-                    sprintf( tempText, "%s got a shard\n", charInfoArray[curCharacterIndex].name );
-                    LogOutput("ShardCreationLog.txt", tempText);
+						sprintf(tempText, "%s got a shard\n", charInfoArray[curCharacterIndex].name);
+						LogOutput("ShardCreationLog.txt", tempText);
 
 
-                }
-                
+					}
+					else if (bboServer->enable_cheating!=0) // in cheaters mode, also give old formula a chance
+					{
+						chance = (rand() % 10);				// flat 10% chance if other requirements are met
+
+						if (dustReturned > 0 && ib->numOfHits >= 22000 && gotDust && chance == 1 && originalIngotCount >= 96) //cheezable with tin tachi made from unages GS and few dusts.
+						{
+							int type = INGR_WHITE_SHARD + (rand() % 8);
+							io = new InventoryObject(
+								INVOBJ_INGREDIENT, 0, dustNames[type]);
+							InvIngredient *exIn = (InvIngredient *)io->extra;
+							exIn->type = type;
+							exIn->quality = 1;
+
+							io->mass = 0.0f;
+							io->value = 1000;
+							io->amount = 1;
+							charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
+
+							sprintf(tempText, "You find something special inside the weapon.");
+							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+
+
+							sprintf(tempText, "%s got a shard\n", charInfoArray[curCharacterIndex].name);
+							LogOutput("ShardCreationLog.txt", tempText);
+
+
+						}
+					}
+				}
                 // destroy weapons from workbench
                 io = (InventoryObject *) charInfoArray[curCharacterIndex].workbench->objects.First();
                 while (io)
@@ -4360,20 +6096,23 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                 }
 
 
-                sprintf(tempText,"You dismantle the weapon.",io->WhoAmI());
+                sprintf(tempText,"You dismantle the weapon.");
                 CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
                 
                 ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
 
 
                 // In any case, you get skill sub-points for that skill.
-                if( skillInfo->skillLevel < 10000 && challenge > work / 10 ) 
+                if( skillInfo->skillLevel < 30000 && challenge > work / 10 ) 
                 {
-                    skillInfo->skillPoints += work;
+                    skillInfo->skillPoints += work* bboServer->smith_exp_multiplier;
 
                     if( skillInfo->skillLevel * skillInfo->skillLevel * 30 <= skillInfo->skillPoints )
                     {
                         // made a skill level!!!
+						// if (skillInfo->skillLevel * skillInfo->skillLevel * 30) overflows, then you will get free elvelups until skillPoints also overflows
+						// but then you have to get all the experience to make up for all the levels you skipped.
+						// this cannot be easily abused because of the minimum diffiuclty requirements to gain exp.
                         skillInfo->skillLevel++;
                         sprintf(tempText,"You gained a skill level!!");
                         CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
@@ -4387,6 +6126,204 @@ void BBOSAvatar::Combine(SharedSpace *ss)
         }
         return;
     }
+    //         ***********************************
+	if (!strcmp(combineSkillName, "Disarming"))
+	{
+		InventoryObject *io;
+		//		int dustAmount[INGR_MAX];
+
+		InventoryObject *bomb = NULL;
+		int numBombs = 0;
+
+		io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.First();
+		while (io)
+		{
+			if (INVOBJ_BOMB == io->type)
+			{
+				numBombs += io->amount;
+				bomb = io;
+				io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.Last();
+			}
+			io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.Next();
+		}
+
+		if (numBombs < 1)
+		{
+			sprintf(tempText, "Put a bomb in the workbench to attempt to disarm it.");
+			CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+			ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+		}
+		else
+		{
+			InvBomb *ib = (InvBomb *)bomb->extra;
+
+			// If they are stacked, remove the current one so it doesn't mess up
+			if (bomb->amount > 1) {
+				InventoryObject *tmp = new InventoryObject(INVOBJ_SIMPLE, 0, "UNNAMED");
+				bomb->CopyTo(tmp);
+				tmp->amount = bomb->amount - 1;
+				bomb->amount = 1;
+
+				charInfoArray[curCharacterIndex].workbench->objects.Prepend(tmp);
+			}
+
+
+			float damDone = ib->power;
+			float challenge = damDone*(1+ib->fuseDelay)*(1 / ib->stability);
+
+
+//5)	IF the task is successful,
+// B)	work = skill level * creativity * rnd(0.9,1.1)*3
+// C)	if Challenge <= work, success!
+
+			InvSkill *skillInfo = NULL;
+			io = (InventoryObject *)charInfoArray[curCharacterIndex].skills->objects.First();
+			while (io)
+			{
+				if (!strcmp(combineSkillName, io->WhoAmI()))
+				{
+					skillInfo = (InvSkill *)io->extra;
+				}
+				io = (InventoryObject *)charInfoArray[curCharacterIndex].skills->objects.Next();
+			}
+
+			if (!skillInfo)
+			{
+				sprintf(tempText, "BUG: Cannot find skill for level.");
+				CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+
+				ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+			}
+			else
+			{
+				float work = skillInfo->skillLevel *
+					CreativeStat() *
+					rnd(0.9f, 1.1f) * 3;
+
+				//				float tempChall = challenge;
+
+				if (tokenMan.TokenIsInHere(MAGIC_WOLF, ss) && ((TowerMap*)ss)->IsMember(charInfoArray[curCharacterIndex].name))
+				{
+					work *= 1.1f;
+				}
+				if (tokenMan.TokenIsInHere(MAGIC_BEAR, ss) && ((TowerMap*)ss)->IsMember(charInfoArray[curCharacterIndex].name))
+				{
+					work *= 1.1f;
+				}
+				if (tokenMan.TokenIsInHere(MAGIC_EAGLE, ss) && ((TowerMap*)ss)->IsMember(charInfoArray[curCharacterIndex].name))
+				{
+					work *= 1.1f;
+				}
+
+				if (specLevel[2] > 0)
+					work *= (1.0f + 0.05f * specLevel[2]);
+
+				sprintf(tempText, "This bomb's difficulty is %4.2f.", challenge);
+				CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+
+				ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+
+				sprintf(tempText, "Your work value was %4.2f.", work);
+				CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+
+				ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+
+				// destroy the bomb from workbench if you suceeded
+				if (work >= challenge) // if we suceeded.
+				{
+					float lvalue = ib->fuseDelay * 10 + bomb->value * 2; // set value forlater so we can create a Disarmed Bomb simple loot
+					io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.First();
+					while (io)
+					{
+						if (bomb == io)  // we found the bomb
+						{
+							if (io->amount > 1)
+								--io->amount;
+							else
+							{
+								charInfoArray[curCharacterIndex].workbench->objects.Remove(io);
+								delete io;
+							}
+							io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.Last();
+						}
+						io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.Next();
+					}
+					// and creat the disarmed bomb
+					InventoryObject *iObject =
+						new InventoryObject(INVOBJ_SIMPLE, 0, "Disarmed Bomb");
+					iObject->mass = 1.0f;
+					iObject->value = lvalue;
+					iObject->amount = 1;
+					charInfoArray[curCharacterIndex].inventory->
+						AddItemSorted(iObject);
+					sprintf(tempText, "You disarmed the bomb.");
+					CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+
+					ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+				}
+
+
+
+				// If you suceeded, you get skill points equal to task difficuly.
+				if (skillInfo->skillLevel < 30000 && work >= challenge) 
+				{
+					skillInfo->skillPoints += challenge* bboServer->bombing_exp_multiplier;
+
+					if (skillInfo->skillLevel * skillInfo->skillLevel * 30 <= skillInfo->skillPoints)
+					{
+						// made a skill level!!!
+						// if (skillInfo->skillLevel * skillInfo->skillLevel * 30) overflows, then you will get free elvelups until skillPoints also overflows
+						// but then you have to get all the experience to make up for all the levels you skipped.
+						// this cannot be easily abused because of the minimum diffiuclty requirements to gain exp.
+						skillInfo->skillLevel++;
+						sprintf(tempText, "You gained a skill level!!");
+						CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+
+						// charInfoArray[curCharacterIndex].cLevel += CLEVEL_VAL_BOMB; // no clvl cuz smiths have enough. lol
+
+						ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+					}
+				}
+				else
+				{
+					// bomb goes boom! FIXME
+					sprintf(tempText, "You failed to disarm the bomb!");
+					CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+					ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+					BBOSBomb *tbomb = new BBOSBomb(this);
+					tbomb->cellX = cellX;
+					tbomb->cellY = cellY;
+					tbomb->type = ib->type;
+					tbomb->flags = ib->flags;
+					tbomb->r = ib->r;
+					tbomb->g = ib->g;
+					tbomb->b = ib->b;
+					tbomb->power = ib->power;
+					tbomb->detonateTime = timeGetTime(); // we ignore stability
+					// and delete the bomb object
+					io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.First();
+					while (io)
+					{
+						if (bomb == io)  // we found the bomb
+						{
+							if (io->amount > 1)
+								--io->amount;
+							else
+							{
+								charInfoArray[curCharacterIndex].workbench->objects.Remove(io);
+								delete io;
+							}
+							io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.Last();
+						}
+						io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.Next();
+					}
+
+					ss->mobList->Add(tbomb);
+				}
+			}
+		}
+		return;
+	}
 
     //         ***********************************
     if (!strcmp(combineSkillName,"Geomancy"))
@@ -4395,7 +6332,7 @@ void BBOSAvatar::Combine(SharedSpace *ss)
         int meatType[2];
         float gemPower, beadPower;
         int beadCount;
-
+		int rottedmeat = 0;
         beadCount = 0;
         meatType[0] = meatType[1] = -1;
         gemPower = beadPower = 1;
@@ -4410,6 +6347,8 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                     meatType[1] = ingre->type;
                 else
                     meatType[0] = ingre->type;
+				if ((ingre->age > 23) || (ingre->age==-2))
+					rottedmeat = 1;
             }
             else if (INVOBJ_GEOPART == io->type)
             {
@@ -4500,30 +6439,56 @@ void BBOSAvatar::Combine(SharedSpace *ss)
 
                     int ekName1 = Bracket((int)(beadPower * gemPower) % 4, 0, 4);
                     int ekName2 = 5 + Bracket((int)(beadPower * gemPower/10) % 4, 0, 4);
+					// anything goes in chaeters edition
+					if (bboServer->enable_cheating == 0) // if we are not cheating
+					{
+						// exclude a few certain types of monster
+						if (21 == meatType[0] ||  // no Thieving Spirit Geos, that's messed up
+							27 == meatType[0] ||   // no Vampire Lord Geos. 
+							31 == meatType[0] ||   // no Unicorns, yet. they are event monsters
+							32 == meatType[0]    // no Reindeer geos, only for christmas event
+							)
+							meatType[0] = 0;
+						// spirit dragons and minos are safe, because the ingots will not drop.
+						// lizard is safe cuz dust doesn't drop.
+						// wurms don't drop their dusts either, so they are allowed
+						if (21 == meatType[1] ||   // no Thieving Spirit Geos, that's messed up
+							27 == meatType[1] ||   // no Vampire Lord Geos. 
+							31 == meatType[1] ||   // no Unicorns, yet. they are event monsters
+							32 == meatType[1]      // no Reindeer geos, only for christmas event
+							)
+							meatType[1] = 0;
+					}
+					int ekdepth = beadPower * gemPower + 20;
+					int ekwidth = sqrt((beadPower * gemPower)) / 5;
+					ekwidth = ekwidth * 5 + 10;
+					int ekheight = sqrt((beadPower * gemPower*0.8f)) / 5;
+					ekheight = ekheight * 5 + 10;
+					// original naming code
+					//					sprintf(tempText, "%s %s EarthKey",
+					//						earthKeyArray[ekName1], earthKeyArray[ekName2]);
+					// depth,monstername, then word earthkey (should BARELY fit)
+					if (meatType[1]<0)
+						sprintf(tempText, "%dm %s EarthKey",
+							ekdepth, monsterData[meatType[0]][0].name);
+					else
+						sprintf(tempText, "%dm mixed EarthKey",
+					ekdepth);
+					// widthXheight monsternameKey
+			//		if (meatType[1]<0)
+			//			sprintf(tempText, "%dX%d %sKey",
+			//				ekwidth,ekheight, monsterData[meatType[0]][0].name);
+			//		else
+			//			sprintf(tempText, "%dX%d mixed EarthKey",
+			//				ekwidth, ekheight);
 
-                    sprintf(tempText, "%s %s EarthKey", 
-                             earthKeyArray[ekName1], earthKeyArray[ekName2]);
-
-                    io = new InventoryObject(INVOBJ_EARTHKEY,0,tempText);
+					io = new InventoryObject(INVOBJ_EARTHKEY,0,tempText);
                     io->mass = 0.0f;
                     io->value = 200 + beadPower * gemPower * 3;
                     io->amount = 1;
 
                     InvEarthKey *exIn = (InvEarthKey *)io->extra;
                     exIn->power = beadPower * gemPower;
-
-                    // exclude a few certain types of monster
-                    if (11 == meatType[0] || 16 == meatType[0] || 
-                         23 == meatType[0] || 21 == meatType[0] || 
-                         20 == meatType[0] || 27 == meatType[0]
-                         || 28 == meatType[0])
-                        meatType[0] = 0;
-
-                    if (11 == meatType[1] || 16 == meatType[1] || 
-                         23 == meatType[1] || 21 == meatType[1] || 
-                         20 == meatType[1] || 27 == meatType[1]
-                         || 28 == meatType[1])
-                        meatType[1] = 0;
 
                     exIn->monsterType[0] = meatType[0];
                     exIn->monsterType[1] = meatType[1];
@@ -4536,7 +6501,11 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                     exIn->height = exIn->height * 5 + 10;
                     if (exIn->height < 10)
                         exIn->height = 10;
-
+					if (rottedmeat == 1)
+					{
+						exIn->width = exIn->width*-1;
+						exIn->height = exIn->height*-1;
+					}
                     sprintf(tempText,"You have created a");
                     CopyStringSafely(tempText,1024, infoText.text, MESSINFOTEXTLEN);
                     ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
@@ -4548,9 +6517,9 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                     charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
 
                     // IF successful, you get skill sub-points for that skill.
-                    if ( skillInfo->skillLevel < 10000 && challenge > work / 20 )
+                    if ( skillInfo->skillLevel < 30000 && challenge > work / 20 )
                     {
-                        skillInfo->skillPoints += work;
+                        skillInfo->skillPoints += work* bboServer->geomancy_exp_multiplier;
 
                         if (skillInfo->skillLevel * skillInfo->skillLevel * 30 <= skillInfo->skillPoints)
                         {
@@ -4559,7 +6528,7 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                             sprintf(tempText,"You gained a skill level!!");
                             CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
                             
-                            charInfoArray[curCharacterIndex].cLevel += CLEVEL_VAL_SMITH;
+                            charInfoArray[curCharacterIndex].cLevel += CLEVEL_VAL_GEOMANCY;
 
                             ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
                         }
@@ -4691,6 +6660,36 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                     float * imbues;
                     imbues = ((InvTotem *)tot->extra)->imbue;
 
+					if (imbues[MAGIC_MOON] == 7 && imbues[MAGIC_TURTLE] == 7) { // break heart gem.
+						sprintf(tempText, "The released power wants to break a Heart Gem apart.");
+						CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+						ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+						io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.First();
+						while (io) {
+							if (INVOBJ_GEOPART == io->type && ((InvGeoPart*)io->extra)->type == 1 && imbues[MAGIC_EVIL] > 1 // one evil can't shatter anything. 
+								&& ((InvGeoPart*)io->extra)->power>1) // only bigger than 1 can be shattered 
+							{
+								if (((InvGeoPart*)io->extra)->power <= imbues[MAGIC_EVIL]) { // 
+									io->amount -= 1;
+									if (io->amount<1)
+										charInfoArray[curCharacterIndex].workbench->objects.Remove(io);
+									int imbues2 = ((InvGeoPart*)io->extra)->power;
+									imbues[MAGIC_EVIL] -= ((InvGeoPart*)io->extra)->power;
+									io = new InventoryObject(INVOBJ_GEOPART, 0, "Plain Heart Gem");
+									io->extra = new InvGeoPart();
+									((InvGeoPart*)io->extra)->type = 1;
+									((InvGeoPart*)io->extra)->power = 1;
+									io->amount = imbues2;
+									io->mass = 0.0f;
+									io->value = 400;
+									charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
+								}
+							}
+
+							io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.Next();
+						}
+
+					}
                     if( imbues[ MAGIC_FROG ] == 2 && imbues[ MAGIC_BEAR ] == 2 ) { // green dust into white
                         sprintf(tempText,"The released power wants to turn Green Dust into White Dust.");
                         CopyStringSafely(tempText,1024, infoText.text, MESSINFOTEXTLEN);
@@ -4757,6 +6756,138 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                             io = (InventoryObject *) charInfoArray[curCharacterIndex].workbench->objects.Next();
                         }
                     }
+					if (imbues[MAGIC_SUN] == 2 && imbues[MAGIC_TURTLE] == 2) { // white into green
+						sprintf(tempText, "The released power wants to turn White into Green Dust.");
+						CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+						ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+
+						io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.First();
+						while (io) {
+							if (INVOBJ_INGREDIENT == io->type && ((InvIngredient*)io->extra)->type == INGR_WHITE_DUST && imbues[MAGIC_EVIL] > 0) {
+								if (io->amount <= imbues[MAGIC_EVIL]) {
+									charInfoArray[curCharacterIndex].workbench->objects.Remove(io);
+									sprintf(io->do_name, "Glowing Green Dust");
+									((InvIngredient*)io->extra)->type = INGR_GREEN_DUST;
+									charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
+								}
+								else {
+									io->amount -= imbues[MAGIC_EVIL];
+
+									io = new InventoryObject(INVOBJ_INGREDIENT, 0, "Glowing Green Dust");
+									io->extra = new InvIngredient();
+									io->amount = imbues[MAGIC_EVIL];
+									((InvIngredient*)io->extra)->type = INGR_GREEN_DUST;
+									((InvIngredient*)io->extra)->quality = 1;
+									io->mass = 0.0f;
+									io->value = 1000;
+
+									charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
+								}
+							}
+
+							io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.Next();
+						}
+					}
+					if (imbues[MAGIC_MOON] == 2 && imbues[MAGIC_SUN] == 2) { // white into Black
+						sprintf(tempText, "The released power wants to turn White into Black Dust.");
+						CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+						ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+
+						io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.First();
+						while (io) {
+							if (INVOBJ_INGREDIENT == io->type && ((InvIngredient*)io->extra)->type == INGR_WHITE_DUST && imbues[MAGIC_EVIL] > 0) {
+								if (io->amount <= imbues[MAGIC_EVIL]) {
+									charInfoArray[curCharacterIndex].workbench->objects.Remove(io);
+									sprintf(io->do_name, "Glowing Black Dust");
+									((InvIngredient*)io->extra)->type = INGR_BLACK_DUST;
+									charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
+								}
+								else {
+									io->amount -= imbues[MAGIC_EVIL];
+
+									io = new InventoryObject(INVOBJ_INGREDIENT, 0, "Glowing Black Dust");
+									io->extra = new InvIngredient();
+									io->amount = imbues[MAGIC_EVIL];
+									((InvIngredient*)io->extra)->type = INGR_BLACK_DUST;
+									((InvIngredient*)io->extra)->quality = 1;
+									io->mass = 0.0f;
+									io->value = 1000;
+
+									charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
+								}
+							}
+
+							io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.Next();
+						}
+					}
+					else if (imbues[MAGIC_EAGLE] == 2 && imbues[MAGIC_FROG] == 2) { // red into black
+						sprintf(tempText, "The released power wants to turn Red Dust into Black Dust.");
+						CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+						ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+
+						io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.First();
+						while (io) {
+							if (INVOBJ_INGREDIENT == io->type && ((InvIngredient*)io->extra)->type == INGR_RED_DUST && imbues[MAGIC_EVIL] > 0) {
+								if (io->amount <= imbues[MAGIC_EVIL]) {
+									charInfoArray[curCharacterIndex].workbench->objects.Remove(io);
+
+									sprintf(io->do_name, "Glowing Black Dust");
+									((InvIngredient*)io->extra)->type = INGR_BLACK_DUST;
+
+									charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
+								}
+								else {
+									io->amount -= imbues[MAGIC_EVIL];
+
+									io = new InventoryObject(INVOBJ_INGREDIENT, 0, "Glowing Black Dust");
+									io->extra = new InvIngredient();
+									io->amount = imbues[MAGIC_EVIL];
+									((InvIngredient*)io->extra)->type = INGR_BLACK_DUST;
+									((InvIngredient*)io->extra)->quality = 1;
+									io->mass = 0.0f;
+									io->value = 1000;
+
+									charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
+								}
+							}
+
+							io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.Next();
+						}
+					}
+					else if (imbues[MAGIC_EAGLE] == 2 && imbues[MAGIC_TURTLE] == 2) { // Red dust into green dust
+						sprintf(tempText, "The released power wants to turn Red Dust into Green Dust.");
+						CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+						ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+
+						io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.First();
+						while (io) {
+							if (INVOBJ_INGREDIENT == io->type && ((InvIngredient*)io->extra)->type == INGR_RED_DUST && imbues[MAGIC_EVIL] > 0) {
+								if (io->amount <= imbues[MAGIC_EVIL]) {
+									charInfoArray[curCharacterIndex].workbench->objects.Remove(io);
+
+									sprintf(io->do_name, "Glowing Green Dust");
+									((InvIngredient*)io->extra)->type = INGR_GREEN_DUST;
+
+									charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
+								}
+								else {
+									io->amount -= imbues[MAGIC_EVIL];
+
+									io = new InventoryObject(INVOBJ_INGREDIENT, 0, "Glowing Green Dust");
+									io->extra = new InvIngredient();
+									io->amount = imbues[MAGIC_EVIL];
+									((InvIngredient*)io->extra)->type = INGR_GREEN_DUST;
+									((InvIngredient*)io->extra)->quality = 1;
+									io->mass = 0.0f;
+									io->value = 1000;
+
+									charInfoArray[curCharacterIndex].inventory->AddItemSorted(io);
+								}
+							}
+
+							io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.Next();
+						}
+					}
                     else if( imbues[ MAGIC_BEAR ] == 5 && imbues[ MAGIC_TURTLE ] == 5 ) { // green dust into blue
                         sprintf(tempText,"The released power wants to turn Green Dust into Blue Dust.");
                         CopyStringSafely(tempText,1024, infoText.text, MESSINFOTEXTLEN);
@@ -4940,9 +7071,9 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                     }
                     
                     // IF successful, you get skill sub-points for that skill.
-                    if ( skillInfo->skillLevel < 10000 && challenge > work / 20 )
+                    if ( skillInfo->skillLevel < 30000 && challenge > work / 20 )
                     {
-                        skillInfo->skillPoints += challenge;
+                        skillInfo->skillPoints += challenge* bboServer->ts_exp_multiplier;
 
                         if( skillInfo->skillLevel * skillInfo->skillLevel * 20 <= skillInfo->skillPoints )
                         {
@@ -4960,7 +7091,7 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                 }
                 else
                 {
-                    sprintf(tempText, "You attempt to magically break the shatter and fail. It crumbles to dust.");
+                    sprintf(tempText, "Your attempt to magically break the totem fails. It crumbles to dust.");
                     CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
                     ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
 
@@ -5026,14 +7157,14 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                 else
                     favorType = -2;
             }
-            else
-            {
-                sprintf(tempText,"Use magic on a totem, staff or egg.");
-                CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
-                
-                ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-                return;
-            }
+ //           else // seriously?!?! ther'es no technical need for this.
+ //           {
+ //               sprintf(tempText,"Use magic on a totem, staff or egg.");
+ //               CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
+ //               
+ //               ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
+ //               return;
+ //           }
 
             io = (InventoryObject *) charInfoArray[curCharacterIndex].workbench->objects.Next();
         }
@@ -5065,14 +7196,22 @@ void BBOSAvatar::Combine(SharedSpace *ss)
             return;
         }
 
-        if (num < 1 && eggNum < 1 && staffNum < 1)
-        {
-            sprintf(tempText,"Put a totem in your workbench.");
-            CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);;
-            
-            ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-            return;
-        }
+		if (num < 1 && eggNum < 1 && staffNum < 1)
+		{
+			sprintf(tempText, "Put a totem in your workbench.");
+			CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+
+			ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+			return;
+		}
+		if ((num + eggNum + staffNum) > 1)
+		{
+			sprintf(tempText, "You have too many imbuable items in the workbench.");
+			CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+
+			ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+			return;
+		}
 
         InvSkill *skillInfo = NULL;
         io = (InventoryObject *) charInfoArray[curCharacterIndex].skills->objects.First();
@@ -5235,7 +7374,7 @@ void BBOSAvatar::Combine(SharedSpace *ss)
             ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
 
             unsigned long exp = StaffImbueExperience(staff, skillInfo->skillLevel);
-            skillInfo->skillPoints += exp;
+            skillInfo->skillPoints += exp* bboServer->magic_exp_multiplier;
 
             switch (result)
             {
@@ -5325,7 +7464,7 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                 return;
             }
 
-            sprintf(tempText,"Task difficulty is %4.2f.", (float) favorAmount + extra->quality);
+            sprintf(tempText,"Task difficulty is %d.", favorAmount + extra->quality);
             CopyStringSafely(tempText,1024,infoText.text,MESSINFOTEXTLEN);
             ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
 
@@ -5377,12 +7516,12 @@ void BBOSAvatar::Combine(SharedSpace *ss)
                 sprintf(totem->do_name, "%s %s Totem", totemQualityName[extra->quality],
                                                       totemTypeName[extra->type]);
 
-                if (abs((long double)(favorAmount - skillInfo->skillLevel)) < 8)
+                if (abs((int)(favorAmount - skillInfo->skillLevel)) < 8)
                 {
                     int add = (favorAmount - skillInfo->skillLevel + 1);
                     if (add < 1)
                         add = 1;
-                    skillInfo->skillPoints += add;
+                    skillInfo->skillPoints += add* bboServer->magic_exp_multiplier;
                 }
             }
             else
@@ -5421,7 +7560,7 @@ void BBOSAvatar::Combine(SharedSpace *ss)
         ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
 
         unsigned long exp = TotemImbueExperience(totem, skillInfo->skillLevel);
-        skillInfo->skillPoints += exp;
+        skillInfo->skillPoints += exp* bboServer->magic_exp_multiplier;
 
         switch (result)
         {
@@ -5494,17 +7633,17 @@ void BBOSAvatar::Combine(SharedSpace *ss)
 }
 
 //******************************************************************
-void BBOSAvatar::UpdateClient(SharedSpace *ss, int clearAll)
+void BBOSAvatar::UpdateClient(SharedSpace *ss, int clearAll, int delay)
 {
     int cX = cellX;
     int cY = cellY;
-
-    if (controlledMonster)
+	Sleep(delay);
+    if ((controlledMonster)&& (!followMode))
     {
         cX = controlledMonster->cellX;
         cY = controlledMonster->cellY;
     }
-
+	
     if (clearAll)
     {
         for (int y = 0; y < MAP_SIZE_HEIGHT; ++y)
@@ -5547,20 +7686,39 @@ void BBOSAvatar::UpdateClient(SharedSpace *ss, int clearAll)
 int BBOSAvatar::GetDodgeLevel(void)
 {
 
-    InventoryObject *io = (InventoryObject *) 
-        charInfoArray[curCharacterIndex].skills->objects.First();
-    while (io)
-    {
-        if (!strcmp("Dodging",io->WhoAmI()))
-        {
-            InvSkill *skillInfo = (InvSkill *) io->extra;
-            return skillInfo->skillLevel;
-        }
-        io = (InventoryObject *) 
-            charInfoArray[curCharacterIndex].skills->objects.Next();
-    }
+	InventoryObject *io = (InventoryObject *)
+		charInfoArray[curCharacterIndex].skills->objects.First();
+	while (io)
+	{
+		if (!strcmp("Dodging", io->WhoAmI()))
+		{
+			InvSkill *skillInfo = (InvSkill *)io->extra;
+			return skillInfo->skillLevel;
+		}
+		io = (InventoryObject *)
+			charInfoArray[curCharacterIndex].skills->objects.Next();
+	}
 
-    return 0;
+	return 0;
+}
+
+int BBOSAvatar::GetPetEnergyLevel(void)
+{
+
+	InventoryObject *io = (InventoryObject *)
+		charInfoArray[curCharacterIndex].skills->objects.First();
+	while (io)
+	{
+		if (!strcmp("Pet Energy", io->WhoAmI()))
+		{
+			InvSkill *skillInfo = (InvSkill *)io->extra;
+			return skillInfo->skillLevel;
+		}
+		io = (InventoryObject *)
+			charInfoArray[curCharacterIndex].skills->objects.Next();
+	}
+
+	return 0;
 }
 
 
@@ -5573,7 +7731,7 @@ void BBOSAvatar::IntroduceMyself(SharedSpace *ss, unsigned short special)
 
 //	if (isInvisible)
 //		return;
-
+	isTeleporting = false;
     MessBladeDesc messBladeDesc;
 
     // tell everyone about my arrival
@@ -5810,34 +7968,36 @@ void BBOSAvatar::AssertGuildStatus(SharedSpace *ss, int full, int socketTarget)
 //******************************************************************
 void BBOSAvatar::MakeCharacterValid(int i)
 {
-    int total_stats = 0;
+	int total_stats = 0;
 
-    if (charInfoArray[i].bottomIndex < 0)
-        charInfoArray[i].bottomIndex = 0;
-    
-    if (charInfoArray[i].bottomIndex >= NUM_OF_BOTTOMS)
-        charInfoArray[i].bottomIndex = NUM_OF_BOTTOMS-1;
+	if (charInfoArray[i].bottomIndex < 0)
+		charInfoArray[i].bottomIndex = 0;
 
-    if (charInfoArray[i].topIndex < -1)	  // -1 means empty slot
-        charInfoArray[i].topIndex = -1;
-    
-    if (charInfoArray[i].topIndex >= NUM_OF_TOPS)
-        charInfoArray[i].topIndex = NUM_OF_TOPS-1;
+	if (charInfoArray[i].bottomIndex >= NUM_OF_BOTTOMS)
+		charInfoArray[i].bottomIndex = NUM_OF_BOTTOMS - 1;
 
-    if (charInfoArray[i].faceIndex < 0)
-        charInfoArray[i].faceIndex = 0;
-    
-    if (charInfoArray[i].faceIndex >= NUM_OF_FACES)
-        charInfoArray[i].faceIndex = NUM_OF_FACES-1;
+	if (charInfoArray[i].topIndex < -1)	  // -1 means empty slot
+		charInfoArray[i].topIndex = -1;
 
-    if (accountType)
-        return;
+	if (charInfoArray[i].topIndex >= NUM_OF_TOPS)
+		charInfoArray[i].topIndex = NUM_OF_TOPS - 1;
 
-    total_stats = charInfoArray[i].creative + charInfoArray[i].physical + charInfoArray[i].magical;
+	if (charInfoArray[i].faceIndex < 0)
+		charInfoArray[i].faceIndex = 0;
 
-    if ( ( total_stats > 12 && charInfoArray[i].age < 4 ) || charInfoArray[i].creative < 1 || charInfoArray[i].physical < 1 || charInfoArray[i].magical  < 1 ) {
-        charInfoArray[i].magical = charInfoArray[i].physical = charInfoArray[i].creative = 4;
-    }
+	if (charInfoArray[i].faceIndex >= NUM_OF_FACES)
+		charInfoArray[i].faceIndex = NUM_OF_FACES - 1;
+
+	if (accountType)
+		return;
+
+	total_stats = charInfoArray[i].creative + charInfoArray[i].physical + charInfoArray[i].magical + charInfoArray[i].beast;
+
+	if ((total_stats > 13 && charInfoArray[i].age < 4) || charInfoArray[i].creative < 1 || charInfoArray[i].physical < 1 || charInfoArray[i].magical < 1 || charInfoArray[i].beast < 1) 
+	{
+		charInfoArray[i].magical = charInfoArray[i].physical = charInfoArray[i].creative = 4;
+		charInfoArray[i].beast = 1; // new stat
+	}
 }
 
 //******************************************************************
@@ -5845,15 +8005,14 @@ void BBOSAvatar::LoadContacts(FILE *fp, float version)
 {
     char tempText[1024];
     int linePoint, argPoint;
-
+	bool done = FALSE;
     // delete old list
     delete contacts;
     contacts = new DoublyLinkedList();
 
-
     LoadLineToString(fp, tempText);
 
-    while (strnicmp("XYZENDXYZ",tempText,9))
+    while (strnicmp("XYZENDXYZ",tempText,9) && !done)
     {
         linePoint = 0;
         argPoint = NextWord(tempText,&linePoint);
@@ -5865,6 +8024,8 @@ void BBOSAvatar::LoadContacts(FILE *fp, float version)
         contacts->Append(dat);
 
         LoadLineToString(fp, tempText);
+		if (feof(fp))
+			done=TRUE;
     }
 
 
@@ -6319,7 +8480,7 @@ void BBOSAvatar::AnnounceDisappearing(SharedSpace *sp, int type)
     tempReceiptList.push_back(socketIndex);
 
     // tell everyone I'm dissappearing
-
+	isTeleporting = true;
     if (SPECIAL_APP_NOTHING != type)
     {
         MessAvatarAppearSpecial messAvAppearSpecial;
@@ -6348,7 +8509,7 @@ void BBOSAvatar::AnnounceDisappearing(SharedSpace *sp, int type)
                                    0, &tempReceiptList);
     else
         sp->SendToEveryoneNearBut(0, cellX, cellY, 
-                               sizeof(aDisappear), &aDisappear);
+                               sizeof(aDisappear), &aDisappear,5);  
 
     // stop any trading!
     charInfoArray[curCharacterIndex].inventory->partner = NULL;
@@ -6368,7 +8529,7 @@ void BBOSAvatar::AnnounceSpecial(SharedSpace *sp, int type)
     messAvAppearSpecial.y = cellY;
     messAvAppearSpecial.typeOfAppearance = type;
 
-    if (isInvisible)
+    if (isInvisible || isTeleporting)
         sp->lserver->SendMsg(sizeof(messAvAppearSpecial),
                               (void *)&messAvAppearSpecial, 
                                    0, &tempReceiptList);
@@ -6380,21 +8541,317 @@ void BBOSAvatar::AnnounceSpecial(SharedSpace *sp, int type)
 //******************************************************************
 void BBOSAvatar::MoveControlledMonster(SharedSpace *ss, int deltaX, int deltaY)
 {
+	MessInfoText infoText;
     std::vector<TagID> tempReceiptList;
     tempReceiptList.clear();
     tempReceiptList.push_back(socketIndex);
-
-    if (!controlledMonster->isMoving && ss->CanMove(controlledMonster->cellX, controlledMonster->cellY, 
+	char tempText[1024];
+    if (((!controlledMonster->isMoving)||(followMode)) && ss->CanMove(controlledMonster->cellX, controlledMonster->cellY, 
                 controlledMonster->cellX + deltaX, controlledMonster->cellY + deltaY))
     {
         controlledMonster->inventory->partner = NULL;
+		// check for dungeon entrance
+		if (SPACE_GROUND == ss->WhatAmI())
+		{
+			// stepping into a dungeon?
+			SharedSpace *sp = (SharedSpace *)bboServer->spaceList->First();
+
+			while (sp)
+			{
+				if (SPACE_DUNGEON == sp->WhatAmI() &&
+					!(((DungeonMap *)sp)->specialFlags & SPECIAL_DUNGEON_TEMPORARY) && !(((DungeonMap *)sp)->specialFlags & SPECIAL_DUNGEON_DOOMTOWER))
+				{
+					if (((DungeonMap *)sp)->enterX == deltaX + controlledMonster->cellX &&
+						((DungeonMap *)sp)->enterY == deltaY + controlledMonster->cellY &&
+						((GroundMap *)ss)->type == 0  &&            // only in normal normal realm
+						!((DungeonMap *)sp)->isLocked)              // controlled monsters can't enter locked dungeons
+					{
+						int lck = FALSE;
+						if (((DungeonMap *)sp)->isLocked &&
+							!(ACCOUNT_TYPE_ADMIN == accountType ||
+								ACCOUNT_TYPE_MODERATOR == accountType ||
+								ACCOUNT_TYPE_TRIAL_MODERATOR == accountType))
+							return;
+
+						charInfoArray[curCharacterIndex].inventory->partner = NULL;
+						activeCounter = 0;
+
+						// tell everyone I'm dissappearing
+						AnnounceDisappearing(ss, SPECIAL_APP_DUNGEON);
+						// and make my monster vanish too
+						MessMonsterDeath messMD;
+						messMD.mobID = (unsigned long)controlledMonster;
+						ss->SendToEveryoneNearBut(0, controlledMonster->cellX, controlledMonster->cellY,
+							sizeof(messMD), (void *)&messMD);
+						// remove it fropm old map
+						ss->mobList->Remove(controlledMonster);
+						
+
+						QuestSpaceChange(ss, sp);
+
+						// move me to my new SharedSpace
+						ss->avatars->Remove(this);
+						sp->avatars->Append(this);
+
+
+						cellX = ((DungeonMap *)sp)->width - 1;
+						cellY = ((DungeonMap *)sp)->height - 1;
+                        // and the monster too
+						controlledMonster->cellX = cellX;
+						controlledMonster->cellY = cellY;
+						// add the monster
+						sp->mobList->Add(controlledMonster);
+						// tell my client I'm entering the dungeon
+						MessChangeMap changeMap;
+						changeMap.dungeonID = (long)sp;
+						changeMap.oldType = ss->WhatAmI();
+						changeMap.newType = sp->WhatAmI();
+						changeMap.sizeX = ((DungeonMap *)sp)->width;
+						changeMap.sizeY = ((DungeonMap *)sp)->height;
+						changeMap.flags = MESS_CHANGE_NOTHING;
+
+						if (((DungeonMap *)sp)->CanEdit(this))
+							changeMap.flags = MESS_CHANGE_EDITING;
+
+						bboServer->lserver->SendMsg(sizeof(changeMap), (void *)&changeMap, 0, &tempReceiptList);
+
+						sprintf_s(tempText, "You enter the %s.", ((DungeonMap *)sp)->name);
+						memcpy(infoText.text, tempText, MESSINFOTEXTLEN - 1);
+						infoText.text[MESSINFOTEXTLEN - 1] = 0;
+						bboServer->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+						// tell everyone about my arrival
+
+						IntroduceMyself(sp, SPECIAL_APP_DUNGEON);
+						// tell clients about my monster
+						controlledMonster->AnnounceMyselfCustom(sp);
+						// tell client where ithe controlled monster is
+						MessMobBeginMoveSpecial bMoveSpecial;
+						bMoveSpecial.mobID = (unsigned long)controlledMonster;
+						bMoveSpecial.x = controlledMonster->cellX;
+						bMoveSpecial.y = controlledMonster->cellY;
+						bMoveSpecial.targetX = controlledMonster->cellX;
+						bMoveSpecial.targetY = controlledMonster->cellY;
+						bMoveSpecial.specialType = 1;  // controlled monster
+						sp->lserver->SendMsg(sizeof(bMoveSpecial),
+							(void *)&bMoveSpecial,
+							0, &tempReceiptList);
+
+						// tell this player about everyone else around
+						UpdateClient(sp, TRUE); 
+						return;		// move finished.
+					}
+				}
+				// no sending monsters into guild towers like this.
+				sp = (SharedSpace *)bboServer->spaceList->Next();
+			}
+
+		}
+		// not a cave, do next check.
+		// check for dungeon based binding
+		// can't move from a static dungeon monster
+		if (SPACE_DUNGEON == ss->WhatAmI())
+		{
+			if (!((DungeonMap *)ss)->CanEdit(this))
+			{
+				BBOSMob *curMob = (BBOSMob *)ss->mobList->GetFirst(controlledMonster->cellX, controlledMonster->cellY);
+				while (curMob)
+				{
+					if (SMOB_MONSTER == curMob->WhatAmI())
+						//								&&
+						//								 !((BBOSMonster *) curMob)->uniqueName[0])
+					{
+						if (!((BBOSMonster *)curMob)->isWandering && // not wandering
+							!((BBOSMonster *)curMob)->isPossessed && // not possessed
+							((BBOSMonster *)curMob)->controllingAvatar==NULL) // it's not being controlled
+						{
+							if ((curMob->cellX == controlledMonster->cellX) &&
+								(curMob->cellY == controlledMonster->cellY) && accountType==ACCOUNT_TYPE_PLAYER) // admins can still move monsters
+							{
+								sprintf_s(infoText.text, "You are magically held to this spot!");
+								bboServer->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+								return;
+							}
+						}
+					}
+
+					curMob = (BBOSMob *)ss->mobList->GetNext();
+				}
+			}
+		}
+		// finally check for warp points
+		BBOSMob *curMob = (BBOSMob *)ss->mobList->GetFirst(
+			deltaX + controlledMonster->cellX
+			, deltaY + controlledMonster->cellY);
+		while (curMob)
+		{
+			if (SMOB_WARP_POINT == curMob->WhatAmI())
+			{
+				if ((((BBOSWarpPoint *)curMob)->allCanUse ||
+					ACCOUNT_TYPE_ADMIN == accountType) &&
+					((BBOSWarpPoint *)curMob)->spaceType < 100)
+				{
+					activeCounter = 0;
+					// remove all doomkeys
+					InventoryObject *io;
+					// destroy doomkeys from workbench
+					io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.First();
+					while (io)
+					{
+						if (INVOBJ_DOOMKEY == io->type)
+						{
+							charInfoArray[curCharacterIndex].workbench->objects.Remove(io);
+							delete io;
+						}
+						io = (InventoryObject *)charInfoArray[curCharacterIndex].workbench->objects.Next();
+					}
+					// destroy doomkeys from inventory
+					io = (InventoryObject *)charInfoArray[curCharacterIndex].inventory->objects.First();
+					while (io)
+					{
+						if (INVOBJ_DOOMKEY == io->type)
+						{
+							charInfoArray[curCharacterIndex].inventory->objects.Remove(io);
+							delete io;
+						}
+						io = (InventoryObject *)charInfoArray[curCharacterIndex].inventory->objects.Next();
+					}
+					// destroy doomkeys from wielded area
+					io = (InventoryObject *)charInfoArray[curCharacterIndex].wield->objects.First();
+					while (io)
+					{
+						if (INVOBJ_DOOMKEY == io->type)
+						{
+							charInfoArray[curCharacterIndex].wield->objects.Remove(io);
+							delete io;
+						}
+						io = (InventoryObject *)charInfoArray[curCharacterIndex].wield->objects.Next();
+					}
+					// remove all earthkey resumes. if you died outside a geo you really shouldn't have done that.
+					// but only do this if you are in an earthkey
+					if ((ss->WhatAmI() == SPACE_DUNGEON) && (((DungeonMap *)ss)->specialFlags & SPECIAL_DUNGEON_TEMPORARY)) // if it's a geo
+					{
+						// destroy resumes from workbench
+						io = (InventoryObject *)((BBOSAvatar *)this)->charInfoArray[((BBOSAvatar *)this)->curCharacterIndex].workbench->objects.First();
+						while (io)
+						{
+							if (INVOBJ_EARTHKEY_RESUME == io->type)
+							{
+								((BBOSAvatar *)this)->charInfoArray[((BBOSAvatar *)this)->curCharacterIndex].workbench->objects.Remove(io);
+								delete io;
+							}
+							io = (InventoryObject *)((BBOSAvatar *)this)->charInfoArray[((BBOSAvatar *)this)->curCharacterIndex].workbench->objects.Next();
+						}
+						// destroy resumes from inventory
+						io = (InventoryObject *)((BBOSAvatar *)this)->charInfoArray[((BBOSAvatar *)this)->curCharacterIndex].inventory->objects.First();
+						while (io)
+						{
+							if (INVOBJ_EARTHKEY_RESUME == io->type)
+							{
+								((BBOSAvatar *)this)->charInfoArray[((BBOSAvatar *)this)->curCharacterIndex].inventory->objects.Remove(io);
+								delete io;
+							}
+							io = (InventoryObject *)((BBOSAvatar *)this)->charInfoArray[((BBOSAvatar *)this)->curCharacterIndex].inventory->objects.Next();
+						}
+						// destroy resumes from wielded area
+						io = (InventoryObject *)((BBOSAvatar *)this)->charInfoArray[((BBOSAvatar *)this)->curCharacterIndex].wield->objects.First();
+						while (io)
+						{
+							if (INVOBJ_EARTHKEY_RESUME == io->type)
+							{
+								((BBOSAvatar *)this)->charInfoArray[((BBOSAvatar *)this)->curCharacterIndex].wield->objects.Remove(io);
+								delete io;
+							}
+							io = (InventoryObject *)((BBOSAvatar *)this)->charInfoArray[((BBOSAvatar *)this)->curCharacterIndex].wield->objects.Next();
+						}
+					}
+
+					// tell everyone I'm dissappearing
+					AnnounceDisappearing(ss, SPECIAL_APP_DUNGEON);
+					// and make my monster vanish too
+					MessMonsterDeath messMD;
+					messMD.mobID = (unsigned long)controlledMonster;
+					ss->SendToEveryoneNearBut(0, controlledMonster->cellX, controlledMonster->cellY,
+						sizeof(messMD), (void *)&messMD);
+					// remove it fropm old map
+					ss->mobList->Remove(controlledMonster);
+					SharedSpace *sp = (SharedSpace *)bboServer->spaceList->First();
+					while (sp)
+					{
+						if (((BBOSWarpPoint *)curMob)->spaceType == sp->WhatAmI())
+						{
+							if ((SPACE_REALM == sp->WhatAmI() &&
+								((BBOSWarpPoint *)curMob)->spaceSubType == ((RealmMap *)sp)->type)
+								|| (SPACE_LABYRINTH == sp->WhatAmI() &&
+								((BBOSWarpPoint *)curMob)->spaceSubType == ((LabyrinthMap *)sp)->type)
+								|| (SPACE_REALM != sp->WhatAmI() && SPACE_LABYRINTH != sp->WhatAmI())
+								)
+							{
+								charInfoArray[curCharacterIndex].inventory->partner = NULL;
+
+								// tell my client I'm leaving the dungeon
+								MessChangeMap changeMap;
+								changeMap.oldType = ss->WhatAmI();
+								changeMap.newType = ((BBOSWarpPoint *)curMob)->spaceType;
+								changeMap.realmID = ((BBOSWarpPoint *)curMob)->spaceSubType;
+								changeMap.sizeX = sp->sizeX;
+								changeMap.sizeY = sp->sizeY;
+								changeMap.flags = MESS_CHANGE_NOTHING; // need to initialize!
+								bboServer->lserver->SendMsg(sizeof(changeMap), (void *)&changeMap, 0, &tempReceiptList);
+
+								QuestSpaceChange(ss, sp);
+
+								// move me to my new SharedSpace
+								ss->avatars->Remove(this);
+								sp->avatars->Append(this);
+								// add the monster
+								sp->mobList->Add(controlledMonster);
+
+
+								cellX = ((BBOSWarpPoint *)curMob)->targetX;
+								cellY = ((BBOSWarpPoint *)curMob)->targetY;
+								// and the monster too
+								controlledMonster->cellX = cellX;
+								controlledMonster->cellY = cellY;
+								// tell client where ithe controlled monster is
+								MessMobBeginMoveSpecial bMoveSpecial;
+								bMoveSpecial.mobID = (unsigned long)controlledMonster;
+								bMoveSpecial.x = controlledMonster->cellX;
+								bMoveSpecial.y = controlledMonster->cellY;
+								bMoveSpecial.targetX = controlledMonster->cellX;
+								bMoveSpecial.targetY = controlledMonster->cellY;
+								bMoveSpecial.specialType = 1;  // controlled monster
+								sp->lserver->SendMsg(sizeof(bMoveSpecial),
+									(void *)&bMoveSpecial,
+									0, &tempReceiptList);
+								// tell everyone about my arrival
+								IntroduceMyself(sp, SPECIAL_APP_DUNGEON);
+								// tell clients about my monster
+								controlledMonster->AnnounceMyselfCustom(sp);
+								// tell this player about everyone else around
+								UpdateClient(sp, TRUE);
+								return;		// move finished.
+							}
+						}
+						sp = (SharedSpace *)bboServer->spaceList->Next();
+					}
+				}
+			}
+
+			curMob = (BBOSMob *)ss->mobList->GetNext();
+		}
+
 
         // okay, let's go!
         controlledMonster->isMoving = TRUE;
+		activeCounter = 0;
         controlledMonster->targetCellX = controlledMonster->cellX + deltaX;
         controlledMonster->targetCellY = controlledMonster->cellY + deltaY;
         controlledMonster->moveStartTime = timeGetTime();
-
+		if (abs(deltaX) + abs(deltaY) < 2) // if it's straight.
+		{
+			// speed move up to match player
+			controlledMonster->moveStartTime = controlledMonster->moveStartTime - 1500;
+		}
         MessMobBeginMove bMove;
         bMove.mobID = (unsigned long) controlledMonster;
         bMove.x = controlledMonster->cellX;
@@ -6403,17 +8860,19 @@ void BBOSAvatar::MoveControlledMonster(SharedSpace *ss, int deltaX, int deltaY)
         bMove.targetY = controlledMonster->cellY + deltaY;
         ss->SendToEveryoneNearBut(socketIndex, controlledMonster->cellX, 
                        controlledMonster->cellY, sizeof(bMove), &bMove);
-
-        MessMobBeginMoveSpecial bMoveSpecial;
-        bMoveSpecial.mobID = (unsigned long) controlledMonster;
-        bMoveSpecial.x = controlledMonster->cellX;
-        bMoveSpecial.y = controlledMonster->cellY;
-        bMoveSpecial.targetX = controlledMonster->cellX + deltaX;
-        bMoveSpecial.targetY = controlledMonster->cellY + deltaY;
-        bMoveSpecial.specialType = 1;  // controlled monster
-        ss->lserver->SendMsg(sizeof(bMoveSpecial),
-                              (void *)&bMoveSpecial, 
-                                   0, &tempReceiptList);
+			MessMobBeginMoveSpecial bMoveSpecial;
+			bMoveSpecial.mobID = (unsigned long)controlledMonster;
+			bMoveSpecial.x = controlledMonster->cellX;
+			bMoveSpecial.y = controlledMonster->cellY;
+			bMoveSpecial.targetX = controlledMonster->cellX + deltaX;
+			bMoveSpecial.targetY = controlledMonster->cellY + deltaY;
+			if (!followMode)
+				bMoveSpecial.specialType = 1;  // controlled monster
+			else
+				bMoveSpecial.specialType = 0;  // controlled monster
+			ss->lserver->SendMsg(sizeof(bMoveSpecial),
+				(void *)&bMoveSpecial,
+				0, &tempReceiptList);
     }
 
 }
@@ -6597,12 +9056,12 @@ void BBOSAvatar::CompleteSecureTrading(SharedSpace *ss)
 
                 fprintf(source,"%d, %s, FROM %s, %s, %ld TO %s, %s, %ld\n",
                     io->amount, io->WhoAmI(),
-                     name,
-                     charInfoArray[curCharacterIndex].name,
-                     charInfoArray[curCharacterIndex].inventory->money,
-                     partnerAvatar->name,
-                     partnerAvatar->charInfoArray[partnerAvatar->curCharacterIndex].name,
-                     partnerAvatar->charInfoArray[partnerAvatar->curCharacterIndex].inventory->money);
+					partnerAvatar->name,
+                    partnerAvatar->charInfoArray[partnerAvatar->curCharacterIndex].name,
+                    partnerAvatar->charInfoArray[partnerAvatar->curCharacterIndex].inventory->money,
+					name,
+					charInfoArray[curCharacterIndex].name,
+					charInfoArray[curCharacterIndex].inventory->money);
 
                 if (INVOBJ_BLADE == io->type)
                 {
@@ -6651,7 +9110,7 @@ void BBOSAvatar::CompleteSecureTrading(SharedSpace *ss)
             fclose(source);
 
             assert(charInfoArray[curCharacterIndex].inventory->money >= 0);
-
+			
             partnerAvatar->QuestGiveGold(ss, this, partnerAvatar->trade->money);
 
             charInfoArray[curCharacterIndex].inventory->money += 
@@ -6809,30 +9268,32 @@ long BBOSAvatar::InventoryValue(void)
 //******************************************************************
 void BBOSAvatar::UseStaffOnMonster(SharedSpace *ss, InvStaff *iStaff, BBOSMonster *curMonster)
 {
-    MessMonsterHealth messMH;
+	char tempText[1024];
+	MessInfoText infoText;
+	std::vector<TagID> tempReceiptList;
+	tempReceiptList.clear();
+	tempReceiptList.push_back(socketIndex);
+	MessMonsterHealth messMH;
 
-    // 1. chance = 2d20 + Blade * Physical + weapon.ToHit - monster.Defense
-    int cVal = iStaff->quality * 5 - 
-                     curMonster->defense + MagicalStat() +
-                     totemEffects.effect[TOTEM_ACCURACY] - iStaff->imbueDeviation;
-    int chance = (rand() % 20) + 2 + (rand() % 20) + cVal;
+    // 1. chance = 30, staffs cant' misss
+    int chance = 30;  // Hit!
 
-    if (StaffAffectsArea(iStaff))
-        chance -= 4;
 
-    if (cVal + 40 <= 20) // if you can't EVER hit
-    {
-        if (6 == (rand() % 20)) // 1-in-20 chance of hitting anyway
-            chance = 30;  // Hit!
-    }
-
-    // 2. if chance > 20, hit was successful
-//	if (chance > 20)
+	if (chance > 20)
 
 
 
     // always hit!
     {
+		if (curMonster->controllingAvatar && (curMonster->controllingAvatar == this)) // if it's my pet
+		{
+			return; // ignore my pet. can't refund chanrge becase this could have been an AOE, and that allos an exploit.
+		}
+		if (curMonster->controllingAvatar && (curMonster->controllingAvatar->BeastStat() > 9)  // someone else's pet
+			&& ((!curMonster->controllingAvatar->PVPEnabled)||(!PVPEnabled)))                  // and pvp is off for both.
+		{
+			return; // ignore other beastmaster pets too. 
+		}
         int effectVal = 3 + iStaff->quality * 5 - iStaff->imbueDeviation;
         if (effectVal < 0)
             effectVal = 0;
@@ -6902,6 +9363,32 @@ void BBOSAvatar::UseStaffOnMonster(SharedSpace *ss, InvStaff *iStaff, BBOSMonste
                 effectVal * 1000, effectVal);
 
             break;
+		case STAFF_AREA_TAUNT:
+			DungeonMap * dm = (DungeonMap *)ss; // define the dungeon map, cast is safe because we won's use it if it't not really a dungeon
+			if ((iStaff->imbueDeviation < 1) // only works if it's perfect
+				&& (ss->WhatAmI()==SPACE_DUNGEON) // and when in a dungeon
+				&& (dm->specialFlags & SPECIAL_DUNGEON_TEMPORARY) // and it's a geo (safe because of short circuit above)
+				&& (curMonster->type > 8) // from sprit vision
+				&& (curMonster->type < 18) // to spirit spider
+ 				&& (curMonster->subType < 1) // not a cent or dokk.
+				&& ((this->cellX != curMonster->cellX)
+				|| (this->cellY != curMonster->cellY))) // is not already in my square
+			{
+				curMonster->targetCellX = this->cellX; //tell the monster to try move to my square 
+				curMonster->targetCellY = this->cellY;
+				curMonster->isMoving = TRUE;  // and make it actuall move
+				curMonster->moveStartTime = timeGetTime();
+
+				MessMobBeginMove bMove;
+				bMove.mobID = (unsigned long)curMonster;
+				bMove.x = curMonster->cellX;
+				bMove.y = curMonster->cellY;
+				bMove.targetX = curMonster->targetCellX;
+				bMove.targetY = curMonster->targetCellY;
+				ss->SendToEveryoneNearBut(0, curMonster->cellX, curMonster->cellY, sizeof(bMove), &bMove);
+
+			}
+			break;
         }
 
         MessMagicAttack messMA;
@@ -6916,6 +9403,14 @@ void BBOSAvatar::UseStaffOnMonster(SharedSpace *ss, InvStaff *iStaff, BBOSMonste
         {
             curMonster->isDead = TRUE;
             curMonster->bane = this;
+			if (curMonster->magicEffectAmount[MONSTER_EFFECT_MORE_LOOT]>0.0f)
+			{
+				sprintf(tempText, "Loot falls from the sky onto the %s's corpse!",
+					curMonster->Name());
+				CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+				ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+				curMonster->dropAmount = (int)(curMonster->dropAmount*1.1f);
+			}
 
             curMonster->HandleQuestDeath();
 
@@ -6971,163 +9466,1246 @@ void BBOSAvatar::UseStaffOnMonster(SharedSpace *ss, InvStaff *iStaff, BBOSMonste
 }
 
 //******************************************************************
-void BBOSAvatar::DoBladestaffExtra(SharedSpace *ss, InvBlade *ib, 
-                                              long damValue, BBOSMonster *targetMonster)
+void BBOSAvatar::AttackPlayer(SharedSpace *ss, BBOSAvatar *curAvatar)
 {
-    char tempText[1024];
-    MessInfoText infoText;
-    std::vector<TagID> tempReceiptList;
-    tempReceiptList.clear();
-    tempReceiptList.push_back(socketIndex);
+	bool DidAttackPlayer = FALSE; // similar to attakcking monsters, remove the player target if you fail to attack.
+	DWORD delta;
+	DWORD now = timeGetTime(); // need this for later
+	char tempText[1024]; // these are needed to report back ti the player.
+	MessInfoText infoText;
+	std::vector<TagID> tempReceiptList;
+	tempReceiptList.clear();
+	tempReceiptList.push_back(socketIndex);
+	// we already know pvp is on at this point, but check that the player is in your square.
+	if ((curAvatar->cellX == cellX) && (curAvatar->cellY == cellY))
+	{
+		// then we can attack
+		// what is our weapon?
+		// find the weapon the avatar is using
+		long bladeToHit = -1, bladeDamage;
+		int bladePoison, bladeHeal, bladeSlow, bladeBlind, bladeShock, bladeTame;
+		bladePoison = bladeHeal = bladeSlow = bladeBlind = bladeShock = bladeTame = 0;
 
-    MessMonsterHealth messMH;
-    BBOSMob *curMob = NULL;
+		InvBlade *iBlade = NULL;
+		InvStaff *iStaff = NULL;
 
-    MapListState oldState2 = ss->mobList->GetState();
+		InventoryObject *io = (InventoryObject *)
+			charInfoArray[curCharacterIndex].wield->objects.First();
 
-    unsigned short bladePoison, bladeSlow, bladeBlind;
-    bladePoison = ib->poison;
-    bladeSlow   = ib->slow;
-    bladeBlind  = ib->blind;
+		while (io && -1 == bladeToHit && !iStaff)
+		{
+			if (INVOBJ_BLADE == io->type)
+			{
+				// if there are multiple swords
+				if (io->amount > 1) {
+					// create a copy of the sword being used
+					InventoryObject *tmp = new InventoryObject(INVOBJ_BLADE, 0, "tmp");
+					io->CopyTo(tmp);
+					io->amount -= 1;  // decrement the amount
 
-    curMob = ss->mobList->GetFirst(cellX, cellY);
-    while (curMob)
-    {
-        BBOSMonster *curMonster = (BBOSMonster *) curMob;
+					// tell the new sword it is one object
+					tmp->amount = 1;
 
-        if (SMOB_MONSTER == curMob->WhatAmI() &&	targetMonster != curMonster)
-        {
+					// add it to the beginning of the list
+					(InventoryObject *)
+						charInfoArray[curCharacterIndex].wield->objects.Prepend(tmp);
 
-            curMonster->health -= damValue;
-            curMonster->RecordDamageForLootDist(damValue, this);
+					// set it as the attacking item
+					io = tmp;
 
-            // give experience for monster damage!
+				}
 
-            MessMonsterHealth messMH;
-            messMH.mobID = (unsigned long)curMonster;
-            messMH.health = curMonster->health;
-            messMH.healthMax = curMonster->maxHealth;
-            ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messMH),(void *)&messMH, 2);
+				iBlade = (InvBlade *)io->extra;
 
-            if (curMonster->health <= 0)
-            {
-                curMonster->isDead = TRUE;
-                curMonster->bane = this;
+				bladeToHit = ((InvBlade *)io->extra)->toHit;
+				bladeDamage = ((InvBlade *)io->extra)->damageDone;
 
-                curMonster->HandleQuestDeath();
+				bladePoison = ((InvBlade *)io->extra)->poison;
+				bladeHeal = ((InvBlade *)io->extra)->heal;
+				bladeSlow = ((InvBlade *)io->extra)->slow;
+				bladeBlind = ((InvBlade *)io->extra)->blind;
+				bladeShock = ((InvBlade *)io->extra)->lightning;
+				bladeTame = ((InvBlade *)io->extra)->tame;
+			}
 
-                if (curMonster->myGenerator && 1 == curMonster->myGenerator->WhatAmI())
-                {
-                    MapListState oldState = ss->mobList->GetState();
+			if (INVOBJ_STAFF == io->type)
+			{
+				iStaff = (InvStaff *)io->extra;
+				if (iStaff->type == STAFF_TAMING)
+					iStaff = NULL; // do not count taming staffs!
+			}
+			io = (InventoryObject *)
+				charInfoArray[curCharacterIndex].wield->objects.Next();
+		}
+		InvStaff usedStaff;
+		int staffRange;
+		usedStaff.charges = -3; // not used;
 
-                    BBOSArmy *army = (BBOSArmy *)	curMonster->myGenerator;
-                    army->MonsterEvent(curMonster, ARMY_EVENT_DIED);
+		// okay we have our weapon data now.
+		// until we have the new dust in, we use golds for this too
+		// first try a staff if its' the current weapon.
+		if (iStaff)
+		{
+			if (iStaff->isActivated)
+			{
+				// swing!
+				MessAvatarAttack messAA;
+				messAA.avatarID = socketIndex;
+				messAA.mobID = (long)curAvatar;
+				messAA.damage = -2;
+				messAA.health = -1000;
+				ss->SendToEveryoneNearBut(0, (float)cellX, (float)cellY, sizeof(messAA), &messAA, 2);
+                // make player aggro on you back.
+					curAvatar->lastAttackTime = now;    // set attack time
+					curAvatar->curPlayerTarget = this;  // set plaer target to me.
 
-                    ss->mobList->SetState(oldState);
-                }
-                else if (curMonster->myGenerator && 2 == curMonster->myGenerator->WhatAmI())
-                {
-                    MapListState oldState = ss->mobList->GetState();
+				// do the effect!
+				staffRange = StaffAffectsArea(iStaff);
+				if (staffRange > 0)  // area?
+					usedStaff = *iStaff; // set variable for later code to do the area attack
+				else
+					UseStaffOnPlayer(ss, iStaff, curAvatar); // thwack the player with it!
 
-                    BBOSAutoQuest *quest = (BBOSAutoQuest *) curMonster->myGenerator;
-                    quest->MonsterEvent(curMonster, AUTO_EVENT_DIED);
+				// reduce the charge!
+				--(iStaff->charges);
+				if (iStaff->charges <= 0)
+				{
+					// it's gone!
 
-                    ss->mobList->SetState(oldState);
-                }
-                // give experience for monster death!
-            }
-            else
-            {
-                if (bladeSlow > 0)
-                {
-                    int chance = bladeSlow;
+					InventoryObject *io = (InventoryObject *)
+						charInfoArray[curCharacterIndex].wield->objects.First();
+					while (io)
+					{
+						if (INVOBJ_STAFF == io->type && iStaff == (InvStaff *)io->extra)
+						{
+							charInfoArray[curCharacterIndex].wield->objects.Remove(io);
+							delete io;
+							iStaff = NULL;
 
-                    if (chance + (rand() % 20) - curMonster->defense > 10)
-                    {
-                        curMonster->MonsterMagicEffect(DRAGON_TYPE_BLUE, 
-                            bladeSlow * 1000, bladeSlow);
+							MessUnWield messUnWield;
+							messUnWield.bladeID = (long)socketIndex;
+							ss->SendToEveryoneNearBut(0, (float)cellX, (float)cellY,
+								sizeof(messUnWield), (void *)&messUnWield);
+						}
+						io = (InventoryObject *)
+							charInfoArray[curCharacterIndex].wield->objects.Next();
+					}
 
-                        if (infoFlags & INFO_FLAGS_HITS)
-                        {
-                            sprintf(tempText,"The %s is Slowed.",
-                                curMonster->Name());
-                            CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
-                            ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-                        }
-                    }
-                }
-                if (bladePoison > 0)
-                {
-                    int chance = bladePoison;
+					// wield the next wielded weapon (if you have one)
+					MessBladeDesc messBladeDesc;
 
-                    if (chance + (rand() % 20) - curMonster->defense > 10)
-                    {
-                        curMonster->MonsterMagicEffect(DRAGON_TYPE_BLACK, 
-                            bladePoison * 1000, bladePoison);
+					io = (InventoryObject *)
+						charInfoArray[curCharacterIndex].wield->objects.First();
+					while (io)
+					{
+						if (INVOBJ_BLADE == io->type)
+						{
 
-                        curMonster->RecordDamageForLootDist(bladePoison * bladePoison / 40, this);
+							FillBladeDescMessage(&messBladeDesc, io, this);
+							if (isInvisible)
+								ss->lserver->SendMsg(sizeof(messBladeDesc), (void *)&messBladeDesc, 0, &tempReceiptList);
+							else
+								ss->SendToEveryoneNearBut(0, (float)cellX, (float)cellY,
+									sizeof(messBladeDesc), (void *)&messBladeDesc);
 
-                        if (infoFlags & INFO_FLAGS_HITS)
-                        {
-                            sprintf(tempText,"The %s is Poisoned.",
-                                curMonster->Name());
-                            CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
-                            ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-                        }
-                    }
-                }
-                if (bladeBlind > 0)
-                {
-                    int chance = bladeBlind;
+							charInfoArray[curCharacterIndex].wield->objects.Last();
+						}
+						else if (INVOBJ_STAFF == io->type)
+						{
+							InvStaff *iStaff = (InvStaff *)io->extra;
 
-                    if (chance + (rand() % 20) - curMonster->defense > 10)
-                    {
-                        curMonster->MonsterMagicEffect(DRAGON_TYPE_WHITE, 
-                            bladeBlind * 1000, bladeBlind);
+							messBladeDesc.bladeID = (long)io;
+							messBladeDesc.size = 4;
+							messBladeDesc.r = staffColor[iStaff->type][0];
+							messBladeDesc.g = staffColor[iStaff->type][1];
+							messBladeDesc.b = staffColor[iStaff->type][2];
+							messBladeDesc.avatarID = socketIndex;
+							messBladeDesc.trailType = 0;
+							messBladeDesc.meshType = BLADE_TYPE_STAFF1;
+							if (iStaff->type == STAFF_TAMING)
+								iStaff = NULL; // ignore taming staff
+							else
+							{
+								// send the equip message
+								if (isInvisible)
+									ss->lserver->SendMsg(sizeof(messBladeDesc), (void *)&messBladeDesc, 0, &tempReceiptList);
+								else
+									ss->SendToEveryoneNearBut(0, (float)cellX, (float)cellY,
+										sizeof(messBladeDesc), (void *)&messBladeDesc);
 
-                        if (infoFlags & INFO_FLAGS_HITS)
-                        {
-                            sprintf(tempText,"The %s is Blinded.",
-                                curMonster->Name());
-                            CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
-                            ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-                        }
-                    }
-                }
+								charInfoArray[curCharacterIndex].wield->objects.Last();
+							}
+						}
 
-                if (!(curMonster->curTarget) || 
-                     (24 == curMonster->type && 3 == (rand() % 10))
-                    )
-                {
-                    curMonster->lastAttackTime = timeGetTime();
-                    curMonster->curTarget = this;
-                }
+						io = (InventoryObject *)
+							charInfoArray[curCharacterIndex].wield->objects.Next();
+					}
 
-                if (curMonster->myGenerator && 1 == curMonster->myGenerator->WhatAmI())
-                {
-                    MapListState oldState = ss->mobList->GetState();
+				}
+			}
 
-                    BBOSArmy *army = (BBOSArmy *)	curMonster->myGenerator;
-                    army->MonsterEvent(curMonster, ARMY_EVENT_ATTACKED);
+		}
+		else
+		{
+			if (-1 == bladeToHit)
+			{
+				bladeToHit = 1;  // fist is minimal;
+				bladeDamage = 1;
+			}
 
-                    ss->mobList->SetState(oldState);
-                }
-                else if (curMonster->myGenerator && 2 == curMonster->myGenerator->WhatAmI())
-                {
-                    MapListState oldState = ss->mobList->GetState();
+			// 1. chance = 2d20 + BladeTame - players' clevel
+			int cVal = bladeTame -
+				(curAvatar->charInfoArray[curAvatar->curCharacterIndex]).cLevel;
+			if (magicEffectAmount[MONSTER_EFFECT_TYPE_WHITE] > 0)                // if we are blinded somehow.
+			{
+				cVal = cVal - magicEffectAmount[MONSTER_EFFECT_TYPE_WHITE];      // blindness cancels out pvp power.  
+			}
+			int chance = (rand() % 20) + 2 + (rand() % 20) + cVal;
+			if (cVal + 40 <= 20) // if you can't EVER hit, becaue you don't have enough pvp power, or are blinded
+			{
+				if (6 == (rand() % 400)) // 1-in-400 chance of hitting anyway
+					chance = 30;  // Hit!  even if blinded.
+			}
+			// taming scythes don't work on players so auto hit for them is diked out
+			// 2. if chance > 20, hit was successful
+			if (chance > 20)
+			{
+				// 3. damage = Physical * weapon.Damage
+				long damValue = (long)(bladeDamage *
+					(1 + PhysicalStat() * 0.15f) +
+				totemEffects.effect[TOTEM_STRENGTH]);
+				AddMastery(ss);	// Add to mastery level
+				long additional_stun = 0;
 
-                    BBOSAutoQuest *quest = (BBOSAutoQuest *) curMonster->myGenerator;
-                    quest->MonsterEvent(curMonster, AUTO_EVENT_ATTACKED);
 
-                    ss->mobList->SetState(oldState);
-                }
-            }
-        }
+				if (specLevel[0] > 0)
+					damValue = (long)(damValue * (1 + 0.05f * specLevel[0]));
 
-        curMob = ss->mobList->GetNext();
-    }
+				if (iBlade && BLADE_TYPE_CHAOS == iBlade->type)
+				{
+					if (3 == rand() % 20)
+					{
+						damValue *= 3;
+						// wtf we need to defien tempText
+						if (infoFlags & INFO_FLAGS_HITS) {
+							sprintf(tempText, "With a burst of strength, you do THREE TIMES as much damage!.");
+							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+						}
+					}
+					else if (2 == rand() % 5)
+					{
+						damValue *= 2;
 
-    ss->mobList->SetState(oldState2);
+						if (infoFlags & INFO_FLAGS_HITS) {
+							sprintf(tempText, "With a burst of strength, you do TWICE as much damage!.");
+							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+						}
+					}
+				}
+
+				if (iBlade && BLADE_TYPE_CLAWS == iBlade->type)
+				{
+					if (8 == rand() % 10)
+					{
+						curAvatar->MagicEffect(MONSTER_EFFECT_STUN, damValue * 250.0f, 2);
+						additional_stun = damValue * 50;
+
+						if (infoFlags & INFO_FLAGS_HITS) {
+								sprintf(tempText, "%s gets stunned by %s's Claw!", curAvatar->name, charInfoArray[curCharacterIndex].name);
+							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+						}
+					}
+				}
+
+				if (iBlade && BLADE_TYPE_DOUBLE == iBlade->type)
+				{
+					if (1 == rand() % 3)
+					{
+						DoBladestaffExtraOnPlayer(ss, iBlade, damValue, curAvatar);
+					}
+				}
+				if (iBlade && BLADE_TYPE_DOUBLE < iBlade->type && BLADE_TYPE_STAFF1 > iBlade->type) // for scythe
+				{
+					if (1 == rand() % 2) //50% chance to strike the square
+					{
+						if (iBlade->type != BLADE_TYPE_TAME_SCYTHE)              // not a taming scythe
+							DoBladestaffExtraOnPlayer(ss, iBlade, (damValue / 2), curAvatar); // do half damage to the rest of the square
+					}
+				}
+				if (iBlade && (iBlade->numOfHits > 0) // since the removal is after this, only do them if numofhits > 1
+					&& (iBlade->type > BLADE_TYPE_DOUBLE)  // don't bother with all this if it's not a scythe.
+					&& (iBlade->type < BLADE_TYPE_STAFF1))
+				{
+					// get most common ingot;
+					int mostingots = iBlade->tinIngots;
+					if (iBlade->aluminumIngots > mostingots)
+						mostingots = iBlade->aluminumIngots;
+					if (iBlade->steelIngots > mostingots)
+						mostingots = iBlade->steelIngots;
+					if (iBlade->carbonIngots > mostingots)
+						mostingots = iBlade->carbonIngots;
+					if (iBlade->zincIngots > mostingots)
+						mostingots = iBlade->zincIngots;
+					if (iBlade->adamIngots > mostingots)
+						mostingots = iBlade->adamIngots;
+					if (iBlade->mithIngots > mostingots)
+						mostingots = iBlade->mithIngots;
+					if (iBlade->vizIngots > mostingots)
+						mostingots = iBlade->vizIngots;
+					if (iBlade->elatIngots > mostingots)
+						mostingots = iBlade->elatIngots;
+					if (iBlade->chitinIngots > mostingots)
+						mostingots = iBlade->chitinIngots;
+					if (iBlade->maligIngots > mostingots)
+						mostingots = iBlade->maligIngots;
+					if (iBlade->tungstenIngots > mostingots)
+						mostingots = iBlade->tungstenIngots;
+					if (iBlade->titaniumIngots > mostingots)
+						mostingots = iBlade->titaniumIngots;
+					if (iBlade->azraelIngots > mostingots)
+						mostingots = iBlade->azraelIngots;
+					if (iBlade->chromeIngots > mostingots)
+							mostingots = iBlade->chromeIngots;
+					// wood used for staff determines extra ingots in the base, so we calculate staff power
+					int effectVal = 1;  // start at 1
+					if (mostingots > 65)
+						effectVal++;
+					if (mostingots > 67)
+						effectVal++;
+					if (mostingots > 71)
+						effectVal++;
+					if (mostingots > 79)
+						effectVal++;
+					if (mostingots > 95)
+						effectVal++;
+					// now we have the staff quality equivalent with one added to it.
+					// apply staff formula to translate that to actual staff power
+					effectVal = 5 * effectVal + 3; // don't worry about imbue deviation, only perfect staffs will add charges.
+												   // now that we know the staff equivalent, we can apply the staff effect
+					if (iBlade->type == BLADE_TYPE_BLIND_SCYTHE) // if it can blind
+					{ // do staff blind effect
+						curAvatar->MagicEffect(DRAGON_TYPE_WHITE,
+							effectVal * 1000, effectVal);
+					}
+					if (iBlade->type == BLADE_TYPE_POISON_SCYTHE) // if it can poison
+					{ // do staff poison effect
+						curAvatar->MagicEffect(DRAGON_TYPE_BLACK,
+							effectVal * 1000, effectVal);
+					}
+					if (iBlade->type == BLADE_TYPE_SLOW_SCYTHE) // if it can slow
+					{ // do staff slow effect
+						curAvatar->MagicEffect(DRAGON_TYPE_BLUE,
+							effectVal * 1000, effectVal);
+					}
+					if (iBlade->type == BLADE_TYPE_STUN_SCYTHE) // if it can stun
+					{ // do staff stun effect
+						curAvatar->MagicEffect(MONSTER_EFFECT_STUN,
+							effectVal * 1000, effectVal);
+					}
+					if (iBlade->type == BLADE_TYPE_TANGLE_SCYTHE) // if it can root
+					{ // do staff root effect
+						curAvatar->MagicEffect(MONSTER_EFFECT_BIND,
+							effectVal * 1000, effectVal);
+					}
+
+					if ((iBlade->type == BLADE_TYPE_TAME_SCYTHE)) // if you aren't actually a beastmaster
+					{
+							sprintf(tempText, "This doesn't work on players.");
+
+							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+
+							iBlade->numOfHits++; // refund charge
+					}
+				}
+
+				if (totemEffects.effect[TOTEM_LIFESTEAL] > 0)
+				{
+						int suck = damValue * totemEffects.effect[TOTEM_LIFESTEAL] / 40;
+						if (suck > charInfoArray[curCharacterIndex].healthMax / 4)
+							suck = charInfoArray[curCharacterIndex].healthMax / 4;
+						damValue += suck;
+
+						charInfoArray[curCharacterIndex].health += suck;
+
+						if (charInfoArray[curCharacterIndex].health >
+							charInfoArray[curCharacterIndex].healthMax)
+							charInfoArray[curCharacterIndex].health =
+							charInfoArray[curCharacterIndex].healthMax;
+					}
+
+					// Add mastery damage
+					if (iBlade)
+						damValue += (GetMasteryForType(iBlade->type) * charInfoArray[curCharacterIndex].physical / 2);
+					// cap actual done damage for taming scythe
+					if (iBlade && (iBlade->type == BLADE_TYPE_TAME_SCYTHE) && damValue > 1)
+						damValue = 1;  // needs to not kill stuff.
+
+					curAvatar->charInfoArray[curAvatar->curCharacterIndex].health -= damValue;
+
+					// get dust total to check if shard elibible
+					int dustTotal = 0;
+					if (iBlade)
+					{
+						dustTotal += iBlade->blind;
+						dustTotal += iBlade->slow;
+						dustTotal += iBlade->heal;
+						dustTotal += iBlade->poison;
+						dustTotal += iBlade->tame;
+						int blueshack = iBlade->toHit - 1;
+						if (iBlade->type == BLADE_TYPE_KATANA)
+							blueshack -= 20;
+						dustTotal += blueshack;  // don't penalize total dust count for not using a tachi.
+					}
+					// age the blade
+					if (iBlade)
+					{
+						if (iBlade->numOfHits < 259501) //
+							++(iBlade->numOfHits);
+					}
+					// revert age if it can't have a shard and not cheating.
+					if (iBlade && iBlade->numOfHits > 22000)
+					{
+						if ((dustTotal < 5) || (iBlade->damageDone < 72))
+						{
+							iBlade->numOfHits = 22000;
+						}
+					}
+					// undo and subtract for a scythe.
+					if (iBlade &&  BLADE_TYPE_DOUBLE < iBlade->type && BLADE_TYPE_STAFF1 > iBlade->type)
+					{
+						--(iBlade->numOfHits);
+						--(iBlade->numOfHits);
+						if (iBlade->numOfHits < 0) // must have been zero before the swing, and one after.
+							++(iBlade->numOfHits); // so it's -1, increase to 0.
+					}
+					if (iBlade && iBlade->type < BLADE_TYPE_SCYTHE // it's not a scythe
+						&& ((iBlade->type == BLADE_TYPE_MACE && iBlade->damageDone > 101) // it's a mace with dam 102 or greater
+							|| iBlade->damageDone > 71))// or somethtign else with dam 72 or greater
+					{
+						// then count the dusts
+						int dustTotal = 0;
+						dustTotal += iBlade->blind;
+						dustTotal += iBlade->slow;
+						dustTotal += iBlade->heal;
+						dustTotal += iBlade->poison;
+						dustTotal += iBlade->tame;
+						int blueshack = iBlade->toHit - 1;
+						if (iBlade->type == BLADE_TYPE_KATANA)
+							blueshack -= 20;
+						dustTotal += blueshack;  // don't penalize total dust count for not using a tachi.
+						if (dustTotal > 4) // if it has enough dusts on it
+						{
+							// then it could ahve a shard chance, check for particle effect
+							int doparticle = 0;
+							if (iBlade->numOfHits > 22000 && ((iBlade->numOfHits - 22000) % 2500 == 0)) // particle for every percentage added
+								doparticle = 1;
+							if (iBlade->numOfHits == 22000)												// initial partical
+								doparticle = 2;
+							if (iBlade->numOfHits == 110000)											// old cap for normal
+								doparticle = 3;
+							if (iBlade->numOfHits == 259500)											// 100%
+								doparticle = 10;
+							if (doparticle > 0)
+							{
+								// pretty particle effect!
+								BBOSGroundEffect *bboGE = new BBOSGroundEffect();
+								bboGE->type = 4;
+								bboGE->amount = 20 * doparticle;
+								bboGE->r = 20;
+								bboGE->g = 60;
+								bboGE->b = 128;
+								BBOSAvatar * curAvatar = this; // reference myself
+								bboGE->cellX = curAvatar->cellX;
+								bboGE->cellY = curAvatar->cellY;
+								bboGE->killme = 400; // make it go away after a small bit.
+								ss->mobList->Add(bboGE);
+
+								MessGroundEffect messGE;
+								messGE.mobID = (unsigned long)bboGE;
+								messGE.type = bboGE->type;
+								messGE.amount = bboGE->amount;
+								messGE.x = bboGE->cellX;
+								messGE.y = bboGE->cellY;
+								messGE.r = bboGE->r;
+								messGE.g = bboGE->g;
+								messGE.b = bboGE->b;
+
+								ss->SendToEveryoneNearBut(0,
+									curAvatar->cellX, curAvatar->cellY,
+									sizeof(messGE), &messGE);
+							} // whew!
+						}
+					}
+					// give experience for monster damage!
+
+//                        if (bladeHeal > 0)
+//                        {
+//                            // green dust heals the wielder.. if it wasn't disabled.
+//                            charInfoArray[curCharacterIndex].health += bladeHeal;
+//
+//                            if (charInfoArray[curCharacterIndex].health >
+//                                        charInfoArray[curCharacterIndex].healthMax)
+//                            {
+//                                charInfoArray[curCharacterIndex].health =
+//                                        charInfoArray[curCharacterIndex].healthMax;
+//                            }
+//                        }
+					if (iBlade && (iBlade->type != BLADE_TYPE_TAME_SCYTHE)) // if not a scythe
+					{
+						/// check for shock.
+						if (bladeShock > 0) {
+							int cnt = iBlade->GetIngotCount(); // safe because bladeshock can't be greater than 0 if iblade doesn't exist.
+
+							if (cnt > 96)
+								cnt = 96;
+
+							if (rand() % 144 < cnt && (bladeShock / 2)) {
+								int resisted = 0; // no resistance for players yet
+
+								curAvatar->charInfoArray[curAvatar->curCharacterIndex].health -= (bladeShock / 2);
+
+								if (infoFlags & INFO_FLAGS_HITS) {
+										sprintf(tempText, "%s gets shocked by %d lightning damage and is stunned.",
+											curAvatar->charInfoArray[curAvatar->curCharacterIndex].name, (bladeShock / 2));
+
+									CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+									ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+								}
+							}
+						}
+					}
+
+					if (curAvatar->charInfoArray[curAvatar->curCharacterIndex].health <= 0)
+					{
+						// no meat drop chance
+						MessAvatarAttack messAA;
+						messAA.avatarID = socketIndex;
+						messAA.mobID = (long)curAvatar;
+						messAA.damage = damValue;
+						messAA.health = -1000;
+						ss->SendToEveryoneNearBut(0, (float)cellX, (float)cellY, sizeof(messAA), &messAA, 2);
+
+						curAvatar->isDead = TRUE;
+
+						// no greens for loot.
+						
+						// now quest death for players
+
+						// not a generator
+					}
+					else
+					{
+						if (!(curAvatar->curPlayerTarget))
+						{
+							curAvatar->lastAttackTime = now;
+							curAvatar->curPlayerTarget = this;
+						}
+						// no gerneator stuff
+						MessAvatarAttack messAA;
+						messAA.avatarID = socketIndex;
+						messAA.mobID = (long)curAvatar;
+						messAA.damage = damValue;
+						messAA.health = charInfoArray[curCharacterIndex].health;
+						messAA.healthMax = charInfoArray[curCharacterIndex].healthMax;
+						ss->SendToEveryoneNearBut(0, (float)cellX, (float)cellY, sizeof(messAA), &messAA, 2);
+
+						MessMonsterHealth messMH;
+						messMH.mobID = (unsigned long)curAvatar;
+						messMH.health = curAvatar->charInfoArray[curAvatar->curCharacterIndex].health;
+						messMH.healthMax = curAvatar->charInfoArray[curAvatar->curCharacterIndex].healthMax;
+						ss->SendToEveryoneNearBut(0, (float)cellX, (float)cellY, sizeof(messMH), (void *)&messMH, 2);
+						// apply dusts
+						if (iBlade && (iBlade->type != BLADE_TYPE_TAME_SCYTHE) && (bladeSlow > 0))
+						{
+							// blue dragons slow the target.
+							int chance = bladeSlow;
+
+							if (chance + (rand() % 20) - curAvatar->charInfoArray[curAvatar->curCharacterIndex].cLevel > 10)
+							{
+								curAvatar->MagicEffect(DRAGON_TYPE_BLUE, bladeSlow * 1000.0f, bladeSlow);
+
+								if (infoFlags & INFO_FLAGS_HITS)
+								{
+										sprintf(tempText, "%s is Slowed.",
+											curAvatar->charInfoArray[curAvatar->curCharacterIndex].name);
+									CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+									ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+								}
+							}
+						}
+						if (bladeHeal > 0)
+						{
+							// green dusts can cause the monster to drop more simple loot.  no effect on players
+						}
+
+
+						if (bladePoison > 0)
+						{  
+							// no effect on players
+						}
+						if (iBlade && (iBlade->type != BLADE_TYPE_TAME_SCYTHE) && (bladeBlind > 0))
+						{
+							int chance = bladeBlind;
+
+							if (chance + (rand() % 20) - curAvatar->charInfoArray[curAvatar->curCharacterIndex].cLevel > 10)
+							{
+								curAvatar->MagicEffect(DRAGON_TYPE_WHITE, bladeBlind * 1000.0f, bladeBlind);
+
+								if (infoFlags & INFO_FLAGS_HITS)
+								{
+										sprintf(tempText, "%s is Blinded.",
+											curAvatar->charInfoArray[curAvatar->curCharacterIndex].name);
+
+									CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+									ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+								}
+							}
+						}
+					}
+
+				}
+				else
+				{
+					// whish!
+					MessAvatarAttack messAA;
+					messAA.avatarID = socketIndex;
+					messAA.mobID = (long)curAvatar;
+					messAA.damage = -1; // miss!
+					messAA.health = charInfoArray[curCharacterIndex].health;
+					messAA.healthMax = charInfoArray[curCharacterIndex].healthMax;
+					ss->SendToEveryoneNearBut(0, (float)cellX, (float)cellY, sizeof(messAA), &messAA, 2);
+				}
+		}
+
+
+	}
+
+	// lets you use your wielded weapon on a player
+	// you will need new dusts equal to the players' clevel to hit for fighter weapons.
+	// if you can hit, they will deal full damage, and dust effects are applied separately, with their own identical rolls to hit. if you can't miss, you will apply dust.
+	// lifesteal also applies.
+	// staffs don't need this, but you will HAVE to be a mage to use them in PVP (no fighters stunning players with a staff and murdering them.)
+	// bombing other players is handled elsewhere, and restricted to smiths.
+	// beastmasters will use their beasts instead.
+	// players currently have no magic resistance stat.  this may be changed later. possibly a new totem formula?
+	// to be written: Unique loot from killing players (player heads :) ) You won't be able to lose your stuff, becasue there's no death penalty in BM ever.
+	// client code to allow the attack command to show depending on pvp flag, and maybe a new packet will be needed to send the attack command to the server.
+}
+//******************************************************************
+void BBOSAvatar::UseStaffOnPlayer(SharedSpace *ss, InvStaff *iStaff, BBOSAvatar *curAvatar)
+{
+	char tempText[1024];
+	MessInfoText infoText;
+	std::vector<TagID> tempReceiptList;
+	tempReceiptList.clear();
+	tempReceiptList.push_back(socketIndex);
+	MessMonsterHealth messMH;
+
+	// 1. chance = 30, staffs cant' misss
+	int chance = 30;  // Hit!
+
+
+	if (chance > 20)
+
+
+
+		// always hit!
+	{
+		if ((curAvatar->BeastStat()>9) && curAvatar->controlledMonster  // beastmaster that has a pet out
+			&& (curAvatar->controlledMonster->cellX==curAvatar->cellX) && (curAvatar->controlledMonster->cellY == curAvatar->cellY)) // and the pet is in the same square.
+			
+		{
+			UseStaffOnMonster(ss, iStaff, curAvatar->controlledMonster); // use it on the pet instead. no need to refund the charge.
+			return;
+		}
+		int effectVal = 3 + iStaff->quality * 5 - iStaff->imbueDeviation;
+		if (effectVal < 0)
+			effectVal = 0;
+		long damValue = 0;
+
+		if (specLevel[1] > 0)
+			effectVal += specLevel[1] * 2;
+
+		switch (iStaff->type)
+		{
+		case STAFF_DAMAGE:
+		case STAFF_AREA_DAMAGE:
+
+			// 3. damage = Physical * weapon.Damage
+			damValue = (iStaff->quality + 1) * (10 - iStaff->imbueDeviation) *
+				(1.0f + MagicalStat() * 0.5f);
+
+			if (StaffAffectsArea(iStaff))
+				damValue = (long)(damValue * 0.6f);
+
+			if (specLevel[1] > 0)
+				damValue = damValue * (1.0f + 0.05f * specLevel[1]);
+			// this is gonna suck
+			curAvatar->charInfoArray[curAvatar->curCharacterIndex].health -= damValue;
+			
+
+			messMH.mobID = (unsigned long)curAvatar;
+			messMH.health = curAvatar->charInfoArray[curAvatar->curCharacterIndex].health;
+			messMH.healthMax = curAvatar->charInfoArray[curAvatar->curCharacterIndex].healthMax;
+			ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messMH), (void *)&messMH, 2);
+
+			break;
+
+		case STAFF_BLIND:
+		case STAFF_AREA_BLIND:
+			curAvatar->MagicEffect(DRAGON_TYPE_WHITE,
+				effectVal * 1000+timeGetTime(), effectVal);
+
+			break;
+
+		case STAFF_SLOW:
+		case STAFF_AREA_SLOW:
+			curAvatar->MagicEffect(DRAGON_TYPE_BLUE,
+				effectVal * 1000 + timeGetTime(), effectVal);
+
+			break;
+
+		case STAFF_POISON:
+		case STAFF_AREA_POISON:
+			curAvatar->MagicEffect(DRAGON_TYPE_BLACK,
+				effectVal * 1000 + timeGetTime(), effectVal);
+
+			break;
+
+		case STAFF_STUN:
+		case STAFF_AREA_STUN:
+			curAvatar->MagicEffect(MONSTER_EFFECT_STUN,
+				effectVal * 1000 + timeGetTime(), effectVal);
+
+			break;
+
+		case STAFF_BIND:
+		case STAFF_AREA_BIND:
+			curAvatar->MagicEffect(MONSTER_EFFECT_BIND,
+				effectVal * 1000 + timeGetTime(), effectVal);
+
+			break;
+		case STAFF_AREA_TAUNT: // seriously?
+			break;             // does nothing when used on a player
+		}
+
+		MessMagicAttack messMA;
+		messMA.damage = damValue;
+		messMA.mobID = (unsigned long)curAvatar;
+		messMA.avatarID = -1;
+		messMA.type = iStaff->type;
+		ss->SendToEveryoneNearBut(0, curAvatar->cellX, curAvatar->cellY,
+			sizeof(messMA), &messMA, 3);
+
+		if (curAvatar->charInfoArray[curAvatar->curCharacterIndex].health <= 0)
+		{
+			curAvatar->isDead = TRUE;
+		}
+		else
+		{
+			if (!(curAvatar->curPlayerTarget) && !(curAvatar->curTarget)) // my target not attacking something already
+			{
+				curAvatar->lastAttackTime = timeGetTime(); // she will hit me back.
+				curAvatar->curPlayerTarget = this;
+			}
+
+		}
+	}
+}
+
+//******************************************************************
+void BBOSAvatar::DoBladestaffExtra(SharedSpace *ss, InvBlade *ib,
+	long damValue, BBOSMonster *targetMonster)
+{
+	char tempText[1024];
+	MessInfoText infoText;
+	std::vector<TagID> tempReceiptList;
+	tempReceiptList.clear();
+	tempReceiptList.push_back(socketIndex);
+
+	MessMonsterHealth messMH;
+	BBOSMob *curMob = NULL;
+
+	MapListState oldState2 = ss->mobList->GetState();
+
+	unsigned short bladePoison, bladeSlow, bladeBlind, bladeHeal;
+	bladePoison = ib->poison;
+	bladeSlow = ib->slow;
+	bladeBlind = ib->blind;
+	bladeHeal = ib->heal;
+
+	curMob = ss->mobList->GetFirst(cellX, cellY);
+	while (curMob)
+	{
+		BBOSMonster *curMonster = (BBOSMonster *)curMob;
+
+		if (SMOB_MONSTER == curMob->WhatAmI() && targetMonster != curMonster // it's a mosnter, and its' NOT the one you already hit
+			&& (curMonster != controlledMonster)								// and it's NOT your pet.
+			&& (!curMonster->controllingAvatar || (curMonster->controllingAvatar->BeastStat() < 10))) // and it has no controller OR its' controller is not a beastmaster (safe due to short circuit) 
+		{
+
+			curMonster->health -= damValue;
+			curMonster->RecordDamageForLootDist(damValue, this);
+
+			// give experience for monster damage!
+
+			MessMonsterHealth messMH;
+			messMH.mobID = (unsigned long)curMonster;
+			messMH.health = curMonster->health;
+			messMH.healthMax = curMonster->maxHealth;
+			ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messMH), (void *)&messMH, 2);
+
+			if (curMonster->health <= 0)
+			{
+				curMonster->isDead = TRUE;
+				curMonster->bane = this;
+				if (ib->type > BLADE_TYPE_DOUBLE)  // if killed by a scythe
+					curMonster->MoreMeat = true;   // give more meat
+				if (curMonster->magicEffectAmount[MONSTER_EFFECT_MORE_LOOT] > 0.0f)
+				{
+					sprintf(tempText, "Loot falls from the sky onto the %s's corpse!",
+						curMonster->Name());
+					CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+					ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+					curMonster->dropAmount = (int)(curMonster->dropAmount*1.1f);
+				}
+
+				curMonster->HandleQuestDeath();
+
+				if (curMonster->myGenerator && 1 == curMonster->myGenerator->WhatAmI())
+				{
+					MapListState oldState = ss->mobList->GetState();
+
+					BBOSArmy *army = (BBOSArmy *)curMonster->myGenerator;
+					army->MonsterEvent(curMonster, ARMY_EVENT_DIED);
+
+					ss->mobList->SetState(oldState);
+				}
+				else if (curMonster->myGenerator && 2 == curMonster->myGenerator->WhatAmI())
+				{
+					MapListState oldState = ss->mobList->GetState();
+
+					BBOSAutoQuest *quest = (BBOSAutoQuest *)curMonster->myGenerator;
+					quest->MonsterEvent(curMonster, AUTO_EVENT_DIED);
+
+					ss->mobList->SetState(oldState);
+				}
+				// give experience for monster death!
+			}
+			else
+			{
+				if (bladeSlow > 0)
+				{
+					int chance = bladeSlow;
+
+					if (chance + (rand() % 20) - curMonster->defense > 10)
+					{
+						int resisted = curMonster->MonsterMagicEffect(DRAGON_TYPE_BLUE,
+							bladeSlow * 1000, bladeSlow);
+
+						if (infoFlags & INFO_FLAGS_HITS)
+						{
+							if (resisted == 1)
+								sprintf(tempText, "The %s resisted your slowing effect!",
+									curMonster->Name());
+							else
+								sprintf(tempText, "The %s is Slowed.",
+									curMonster->Name());
+							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+						}
+					}
+				}
+				if (bladePoison > 0)
+				{
+					int chance = bladePoison;
+
+					//                    if (chance + (rand() % 20) - curMonster->defense > 10)
+					//                    {
+					curMonster->MonsterMagicEffect(MONSTER_EFFECT_RESIST_LOWER,
+						bladePoison * 1000, bladePoison);
+
+					curMonster->RecordDamageForLootDist(bladePoison * bladePoison / 40, this);
+
+					if (infoFlags & INFO_FLAGS_HITS)
+					{
+						sprintf(tempText, "The %s is more vulnerable to other dusts.",
+							curMonster->Name());
+						CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+						ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+					}
+					//                   }
+				}
+				if (bladeBlind > 0)
+				{
+					int chance = bladeBlind;
+
+					if (chance + (rand() % 20) - curMonster->defense > 10)
+					{
+						int resisted = curMonster->MonsterMagicEffect(DRAGON_TYPE_WHITE,
+							bladeBlind * 1000, bladeBlind);
+
+						if (infoFlags & INFO_FLAGS_HITS)
+						{
+							if (resisted == 1)
+								sprintf(tempText, "The %s resisted your blinding effect.",
+									curMonster->Name());
+							else
+								sprintf(tempText, "The %s is Blinded.",
+									curMonster->Name());
+
+							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+						}
+					}
+				}
+				if (bladeHeal > 0)
+				{
+					// green dusts can cause the monster to drop more simple loot.
+					int chance = bladeHeal;
+
+					if (chance + (rand() % 20) - curMonster->defense > 10)
+					{
+						curMonster->MonsterMagicEffect(MONSTER_EFFECT_MORE_LOOT,
+							bladeHeal * 1000.0f, bladeHeal);
+
+					}
+				}
+				// staff effect checks
+				if ((ib->numOfHits > 0) // since the removal is after this, only do them if numofhits > 1
+					&& (ib->type > BLADE_TYPE_DOUBLE)  // don't bother with all this if it's not a scythe.
+					&& (ib->type < BLADE_TYPE_STAFF1))
+				{
+					// get most common ingot;
+					int mostingots = ib->tinIngots;
+					if (ib->aluminumIngots > mostingots)
+						mostingots = ib->aluminumIngots;
+					if (ib->steelIngots > mostingots)
+						mostingots = ib->steelIngots;
+					if (ib->carbonIngots > mostingots)
+						mostingots = ib->carbonIngots;
+					if (ib->zincIngots > mostingots)
+						mostingots = ib->zincIngots;
+					if (ib->adamIngots > mostingots)
+						mostingots = ib->adamIngots;
+					if (ib->mithIngots > mostingots)
+						mostingots = ib->mithIngots;
+					if (ib->vizIngots > mostingots)
+						mostingots = ib->vizIngots;
+					if (ib->elatIngots > mostingots)
+						mostingots = ib->elatIngots;
+					if (ib->chitinIngots > mostingots)
+						mostingots = ib->chitinIngots;
+					if (ib->maligIngots > mostingots)
+						mostingots = ib->maligIngots;
+					if (ib->tungstenIngots > mostingots)
+						mostingots = ib->tungstenIngots;
+					if (ib->titaniumIngots > mostingots)
+						mostingots = ib->titaniumIngots;
+					if (ib->azraelIngots > mostingots)
+						mostingots = ib->azraelIngots;
+					if (ib->chromeIngots > mostingots)
+						mostingots = ib->chromeIngots;
+					// wood used for staff determines extra ingots in the base, so we calculate staff power
+					int effectVal = 1;  // start at 1
+					if (mostingots > 65)
+						effectVal++;
+					if (mostingots > 67)
+						effectVal++;
+					if (mostingots > 71)
+						effectVal++;
+					if (mostingots > 79)
+						effectVal++;
+					if (mostingots > 95)
+						effectVal++;
+					// now we have the staff quality equivalent with one added to it.
+					// apply staff formula to translate that to actual staff power
+					effectVal = 5 * effectVal + 3; // don't worry about imbue deviation, only perfect staffs will add charges.
+					// now that we know the staff equivalent, we can apply the staff effect
+					if (ib->type == BLADE_TYPE_BLIND_SCYTHE) // if it can blind
+					{ // do staff blind effect
+						curMonster->MonsterMagicEffect(DRAGON_TYPE_WHITE,
+							effectVal * 1000, effectVal);
+					}
+					if (ib->type == BLADE_TYPE_POISON_SCYTHE) // if it can poison
+					{ // do staff poison effect
+						curMonster->MonsterMagicEffect(DRAGON_TYPE_BLACK,
+							effectVal * 1000, effectVal);
+					}
+					if (ib->type == BLADE_TYPE_SLOW_SCYTHE) // if it can slow
+					{ // do staff slow effect
+						curMonster->MonsterMagicEffect(DRAGON_TYPE_BLUE,
+							effectVal * 1000, effectVal);
+					}
+					if (ib->type == BLADE_TYPE_STUN_SCYTHE) // if it can stun
+					{ // do staff stun effect
+						curMonster->MonsterMagicEffect(MONSTER_EFFECT_STUN,
+							effectVal * 1000, effectVal);
+					}
+					if (ib->type == BLADE_TYPE_TANGLE_SCYTHE) // if it can root
+					{ // do staff root effect
+						curMonster->MonsterMagicEffect(MONSTER_EFFECT_BIND,
+							effectVal * 1000, effectVal);
+					}
+				}
+
+				if (!(curMonster->curTarget) ||
+					(24 == curMonster->type && 3 == (rand() % 10))
+					)
+				{
+					curMonster->lastAttackTime = timeGetTime();
+					curMonster->curTarget = this;
+				}
+
+				if (curMonster->myGenerator && 1 == curMonster->myGenerator->WhatAmI())
+				{
+					MapListState oldState = ss->mobList->GetState();
+
+					BBOSArmy *army = (BBOSArmy *)curMonster->myGenerator;
+					army->MonsterEvent(curMonster, ARMY_EVENT_ATTACKED);
+
+					ss->mobList->SetState(oldState);
+				}
+				else if (curMonster->myGenerator && 2 == curMonster->myGenerator->WhatAmI())
+				{
+					MapListState oldState = ss->mobList->GetState();
+
+					BBOSAutoQuest *quest = (BBOSAutoQuest *)curMonster->myGenerator;
+					quest->MonsterEvent(curMonster, AUTO_EVENT_ATTACKED);
+
+					ss->mobList->SetState(oldState);
+				}
+			}
+		}
+
+		curMob = ss->mobList->GetNext();
+	}
+	// and, if allowed to be crafted, the spirit summon effect. do thsi after goign through all of the nonsters.
+	// staf effect strength doesnt' matter, so we dont need to look it up again.  we assume 
+	if (ib->type == BLADE_TYPE_SUMMON_SCYTHE)
+	{
+		DungeonMap * dm = (DungeonMap *)ss; // define the dungeon map, 
+		BBOSMob * curMob2 = ss->mobList->GetFirst(cellX, cellY, 2);
+		while (curMob2)
+		{
+			BBOSMonster * curMonster = (BBOSMonster *)curMob2;
+
+			if (SMOB_MONSTER == curMob2->WhatAmI() &&
+				abs(cellX - curMob2->cellX) <= 2 &&
+				abs(cellY - curMob2->cellY) <= 2)
+				// don't need to check deviation, becasue  it was made with perfect staffs
+				if ((ss->WhatAmI() == SPACE_DUNGEON) // in a dungeon
+					&& (dm->specialFlags & SPECIAL_DUNGEON_TEMPORARY) // and it's a geo (safe because of short circuit)
+					&& (curMonster->type > 8) // from sprit vision
+					&& (curMonster->type < 18) // to spirit spider
+					&& (curMonster->subType < 1) // not a cent or dokk.
+					&& ((this->cellX != curMonster->cellX)
+						|| (this->cellY != curMonster->cellY))) // is not already in my square
+				{
+					curMonster->targetCellX = this->cellX; //tell the monster to try move to my square 
+					curMonster->targetCellY = this->cellY;
+					curMonster->isMoving = TRUE;  // and make it actually move
+					curMonster->moveStartTime = timeGetTime();
+
+					MessMobBeginMove bMove;
+					bMove.mobID = (unsigned long)curMonster;
+					bMove.x = curMonster->cellX;
+					bMove.y = curMonster->cellY;
+					bMove.targetX = curMonster->targetCellX;
+					bMove.targetY = curMonster->targetCellY;
+					ss->SendToEveryoneNearBut(0, curMonster->cellX, curMonster->cellY, sizeof(bMove), &bMove);
+
+				}
+
+			curMob = ss->mobList->GetNext();
+		}
+	}
+
+	ss->mobList->SetState(oldState2);
+}
+//******************************************************************
+void BBOSAvatar::DoBladestaffExtraOnPlayer(SharedSpace *ss, InvBlade *ib,
+	long damValue, BBOSAvatar *targetPlayer)
+{
+	char tempText[1024];
+	MessInfoText infoText;
+	std::vector<TagID> tempReceiptList;
+	tempReceiptList.clear();
+	tempReceiptList.push_back(socketIndex);
+
+	MessMonsterHealth messMH;
+	BBOSMob *curMob = NULL;
+
+	MapListState oldState2 = ss->mobList->GetState();
+
+	unsigned short bladePoison, bladeSlow, bladeBlind, bladeHeal;
+	bladePoison = ib->poison;
+	bladeSlow = ib->slow;
+	bladeBlind = ib->blind;
+	bladeHeal = ib->heal;
+	curMob = (BBOSMob *)ss->avatars->First();
+	while (curMob)
+	{
+		BBOSAvatar *curPlayer = (BBOSAvatar *)curMob; // sould be safe, because this is the avatar list.
+		if ((SMOB_AVATAR == curMob->WhatAmI()) && (targetPlayer != curPlayer) // it's a player, and its' NOT the one you already hit			
+			&& (cellX == curPlayer->cellX) && (cellY == curPlayer->cellY)) /// and in your square
+		{
+
+			curPlayer->charInfoArray[curPlayer->curCharacterIndex].health -= damValue;
+			
+			// give experience for monster damage!
+			
+			MessMonsterHealth messMH;
+			messMH.mobID = (unsigned long)curPlayer;
+			messMH.health = curPlayer->charInfoArray[curPlayer->curCharacterIndex].health;
+			messMH.healthMax = curPlayer->charInfoArray[curPlayer->curCharacterIndex].healthMax;
+			ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messMH), (void *)&messMH, 2);
+
+			if (curPlayer->charInfoArray[curPlayer->curCharacterIndex].health <= 0)
+			{
+				curPlayer->isDead = TRUE;
+				// stuff related to monsters ignored here.
+			}
+			else
+			{
+				// not dead yet, we can apply dusts
+				// but dusts aren't automatic, you still need enough to apply the effect.
+				// we need to get the clvl
+				int dustdefense = curPlayer->charInfoArray[curPlayer->curCharacterIndex].cLevel;
+				// players can be slowed.
+				if (bladeSlow > 0)
+				{
+					int chance = bladeSlow-dustdefense; // you need more dusts than clvl to tack on the dust effect for your cheated hit that bypassed clvl
+					
+					if (chance >= 0) // got enough dusts?
+					{
+						curPlayer->MagicEffect(DRAGON_TYPE_BLUE,	bladeSlow * 1000, bladeSlow); // apply the effect
+						// player don't have dust resistance.  oh, the PAIN!
+						if (infoFlags & INFO_FLAGS_HITS)
+						{
+								sprintf(tempText, "%s is Slowed.", curPlayer->name);
+							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+						}
+					}
+				}
+				// since players don't have reistance, don't bother checkig the black dust.
+				// but they can be blinded.
+				if (bladeBlind > 0)
+				{
+					int chance = bladeBlind-dustdefense;
+
+					if (chance >= 0)  // got enough dusts?
+					{
+						curPlayer->MagicEffect(DRAGON_TYPE_WHITE, bladeBlind * 1000, bladeBlind);
+
+						if (infoFlags & INFO_FLAGS_HITS)
+						{
+								sprintf(tempText, "%s is Blinded.",
+									curPlayer->name);
+
+							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+						}
+					}
+				}
+				// greens don't matter on players either. that's removed
+				// and silvers don't spread to the square with monsters either.
+				// now we check for the scythes that arent' even in game anymore.
+				// staff effect checks
+				if ((ib->numOfHits > 0) // since the removal is after this, only do them if numofhits > 1
+					&& (ib->type > BLADE_TYPE_DOUBLE)  // don't bother with all this if it's not a scythe.
+					&& (ib->type < BLADE_TYPE_STAFF1))
+				{
+					// get most common ingot;
+					int mostingots = ib->tinIngots;
+					if (ib->aluminumIngots > mostingots)
+						mostingots = ib->aluminumIngots;
+					if (ib->steelIngots > mostingots)
+						mostingots = ib->steelIngots;
+					if (ib->carbonIngots > mostingots)
+						mostingots = ib->carbonIngots;
+					if (ib->zincIngots > mostingots)
+						mostingots = ib->zincIngots;
+					if (ib->adamIngots > mostingots)
+						mostingots = ib->adamIngots;
+					if (ib->mithIngots > mostingots)
+						mostingots = ib->mithIngots;
+					if (ib->vizIngots > mostingots)
+						mostingots = ib->vizIngots;
+					if (ib->elatIngots > mostingots)
+						mostingots = ib->elatIngots;
+					if (ib->chitinIngots > mostingots)
+						mostingots = ib->chitinIngots;
+					if (ib->maligIngots > mostingots)
+						mostingots = ib->maligIngots;
+					if (ib->tungstenIngots > mostingots)
+						mostingots = ib->tungstenIngots;
+					if (ib->titaniumIngots > mostingots)
+						mostingots = ib->titaniumIngots;
+					if (ib->azraelIngots > mostingots)
+						mostingots = ib->azraelIngots;
+					if (ib->chromeIngots > mostingots)
+						mostingots = ib->chromeIngots;
+					// wood used for staff determines extra ingots in the base, so we calculate staff power
+					int effectVal = 1;  // start at 1
+					if (mostingots > 65)
+						effectVal++;
+					if (mostingots > 67)
+						effectVal++;
+					if (mostingots > 71)
+						effectVal++;
+					if (mostingots > 79)
+						effectVal++;
+					if (mostingots > 95)
+						effectVal++;
+					// now we have the staff quality equivalent with one added to it.
+					// apply staff formula to translate that to actual staff power
+					effectVal = 5 * effectVal + 3; // don't worry about imbue deviation, only perfect staffs will add charges.
+					// now that we know the staff equivalent, we can apply the staff effect
+					if (ib->type == BLADE_TYPE_BLIND_SCYTHE) // if it can blind
+					{ // do staff blind effect
+						curPlayer->MagicEffect(DRAGON_TYPE_WHITE,
+							effectVal * 1000, effectVal);
+					}
+					if (ib->type == BLADE_TYPE_POISON_SCYTHE) // if it can poison
+					{ // do staff poison effect
+						curPlayer->MagicEffect(DRAGON_TYPE_BLACK,
+							effectVal * 1000, effectVal);
+					}
+					if (ib->type == BLADE_TYPE_SLOW_SCYTHE) // if it can slow
+					{ // do staff slow effect
+						curPlayer->MagicEffect(DRAGON_TYPE_BLUE,
+							effectVal * 1000, effectVal);
+					}
+					if (ib->type == BLADE_TYPE_STUN_SCYTHE) // if it can stun
+					{ // do staff stun effect
+						curPlayer->MagicEffect(MONSTER_EFFECT_STUN,
+							effectVal * 1000, effectVal);
+					}
+					if (ib->type == BLADE_TYPE_TANGLE_SCYTHE) // if it can root
+					{ // do staff root effect
+						curPlayer->MagicEffect(MONSTER_EFFECT_BIND,
+							effectVal * 1000, effectVal);
+					}
+				}
+
+				if (!(curPlayer->curPlayerTarget)) // player not already attacking a player?
+				{
+					curPlayer->lastAttackTime = timeGetTime();
+					curPlayer->curPlayerTarget = this;  // player will hit you back.
+				}
+
+			}
+		}
+
+		curMob = ss->mobList->GetNext();
+	}
+	// spirit summoning scythe does nothing to players, so that's removed.
 }
 
 //******************************************************************
@@ -7451,7 +11029,7 @@ void BBOSAvatar::QuestMovement(SharedSpace *ss)
                                     CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
                                     ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
 
-                                    monster = new BBOSMonster(2,5,NULL);
+                                    monster = new BBOSMonster(2,5,false);
                                     monster->cellX = monster->targetCellX = monster->spawnX = qt->x;
                                     monster->cellY = monster->targetCellY = monster->spawnY = qt->y;
                                     ss->mobList->Add(monster);
@@ -7473,8 +11051,9 @@ void BBOSAvatar::QuestMovement(SharedSpace *ss)
                                     monster->defense         = qt->monsterSubType/14;
                                     monster->dropAmount      = qt->monsterSubType/100;
                                     monster->magicResistance = qt->monsterSubType/20/100;
-                                    if (monster->magicResistance > 1)
-                                        monster->magicResistance = 1;
+//                                    if (monster->magicResistance > 1)
+//                                        monster->magicResistance = 1;
+									monster->tamingcounter = 1000;						// demon princes can't be tamed either.
 
                                     monster->healAmountPerSecond = qt->monsterSubType/3;
 
@@ -7487,7 +11066,7 @@ void BBOSAvatar::QuestMovement(SharedSpace *ss)
 
                                     monster = new BBOSMonster(
                                                pmTypes[qt->monsterType-1].type, 
-                                         pmTypes[qt->monsterType-1].subType,NULL);
+                                         pmTypes[qt->monsterType-1].subType,false);
                                     monster->cellX = monster->targetCellX = monster->spawnX = qt->x;
                                     monster->cellY = monster->targetCellY = monster->spawnY = qt->y;
                                     ss->mobList->Add(monster);
@@ -7512,13 +11091,14 @@ void BBOSAvatar::QuestMovement(SharedSpace *ss)
                                     monster->defense         = qt->monsterSubType/14;
                                     monster->dropAmount      = qt->monsterSubType/100;
                                     monster->magicResistance = qt->monsterSubType/20/100;
-                                    if (monster->magicResistance > 1)
-                                        monster->magicResistance = 1;
+ //                                   if (monster->magicResistance > 1)
+ //                                       monster->magicResistance = 1;
+									monster->tamingcounter = 1000;						// no taming a possee and abusing it's high regen.
 
                                     monster->healAmountPerSecond = qt->monsterSubType/3;
 
                                     monster->isPossessed = TRUE;
-
+									monster->dontRespawn = TRUE;
                                     monster->AddPossessedLoot(qt->monsterSubType/150+qt->range);
                                 }
 
@@ -7542,7 +11122,7 @@ void BBOSAvatar::QuestMovement(SharedSpace *ss)
                                 ss->SendToEveryoneNearBut(0, monster->cellX, monster->cellY,
                                          sizeof(mAppear),(void *)&mAppear);
                             }
-                            else if (abs(cellX - qt->x) < 4 && abs(cellY - qt->y) < 4 && 
+                            else if (abs(cellX - qt->x) < 4 && abs(cellY - qt->y) < 4 &&
                                  0 == q->completeVal && SPACE_GROUND == ss->WhatAmI() && (qt->mapType==SPACE_GROUND))
                             {
                                 q->completeVal = 1; // made monster; don't make it again.
@@ -7556,28 +11136,33 @@ void BBOSAvatar::QuestMovement(SharedSpace *ss)
                                 CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
                                 ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
 
-                                monster = new BBOSMonster(qt->monsterType,qt->monsterSubType,NULL);
+                                monster = new BBOSMonster(qt->monsterType,qt->monsterSubType,false);
                                 monster->cellX = monster->targetCellX = monster->spawnX = qt->x;
                                 monster->cellY = monster->targetCellY = monster->spawnY = qt->y;
                                 ss->mobList->Add(monster);
-                                sprintf(monster->uniqueName, qt->otherName);
+								sprintf(tempText, "%s - %s", qt->otherName,
+									charInfoArray[curCharacterIndex].name);
+								CopyStringSafely(tempText, 1024, monster->uniqueName, 32);
+								CopyStringSafely(monster->uniqueName,32, qt->otherName,64);
 
                                 
                                 //	adjust its power
-                                monster->sizeCoeff       = 1.5f + 1.0f * qt->range/100.0f /800;
-                                monster->health          = 40 * qt->range/100.0f;
-                                monster->maxHealth       = 40 * qt->range/100.0f;
-                                monster->damageDone      = qt->range/100.0f/20;
+                                monster->sizeCoeff       = 1.5f + 1.0f * qt->range /800;
+                                monster->health          = 40 * qt->range;
+                                monster->maxHealth       = 40 * qt->range;
+                                monster->damageDone      = qt->range/20;
 
-                                monster->toHit           = qt->range/100.0f/14;
-                                monster->defense         = qt->range/100.0f/14;
-                                monster->dropAmount      = qt->range/100.0f/100;
-                                monster->magicResistance = qt->range/100.0f/20/100;
-                                if (monster->magicResistance > 1)
-                                    monster->magicResistance = 1;
+                                monster->toHit           = qt->range/14;
+                                monster->defense         = qt->range/14;
+                                monster->dropAmount      = qt->range/100;
+                                monster->magicResistance = qt->range/20/100;
+ //                               if (monster->magicResistance > 1)
+ //                                   monster->magicResistance = 1;
+								monster->tamingcounter = 1000;						// no taming OP quest monsters!
 
-                                monster->healAmountPerSecond = qt->range/100.0f/3;
-                                
+                                monster->healAmountPerSecond = qt->range/3;
+                                // remember who spawned it
+								monster->questowner = this;
                                 // tell everyone about me
                                 MessMobAppearCustom mAppear;
                                 mAppear.type = SMOB_MONSTER;
@@ -7651,7 +11236,7 @@ void BBOSAvatar::QuestMovement(SharedSpace *ss)
                                      cellY == greatTreePos[qt->monsterType][1])
                                 {
 
-                                    sprintf(tempText,"The Great Tree gives you something.");
+                                    sprintf(tempText,"The Great Tree gives you a %s.", questRetrieveTypeDesc[q->questSource]);
                                     CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
                                     ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
 
@@ -7663,7 +11248,7 @@ void BBOSAvatar::QuestMovement(SharedSpace *ss)
                                     iObject->amount = 1;
                                     iObject->status = INVSTATUS_QUEST_ITEM;
 
-                                    charInfoArray[curCharacterIndex].inventory->objects.Prepend(iObject);
+                                    charInfoArray[curCharacterIndex].inventory->AddItemSorted(iObject);
 
                                     q->completeVal = 10000; // finished!
 
@@ -7703,15 +11288,22 @@ void BBOSAvatar::QuestTime(SharedSpace *ss)
             char tempText[1024];
 
             LongTime now;
-            if (now.MinutesDifference(&q->timeLeft) <= 0)
-            {
-                q->EmptyOut();
-                sprintf(tempText,"***** Quest %d has expired.", i + 1);
-                CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
-                ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-            }
-            else
-            {
+			if (now.MinutesDifference(&q->timeLeft) <= 0)
+			{
+				q->EmptyOut();
+				sprintf(tempText, "***** Quest %d has expired.", i + 1);
+				CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+				ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+			}
+			else if (now.MinutesDifference(&q->timeLeft) > 60*25) // no quest has more than 25 hours to complete!
+			{
+				q->EmptyOut();
+				sprintf(tempText, "***** Quest %d has expired.", i + 1);
+				CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+				ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+			}
+				else
+				{
                 /*
                 QuestPart *qp = q->GetVerb();
                 if (qp)
@@ -7777,22 +11369,28 @@ void BBOSAvatar::QuestMonsterKill(SharedSpace *ss, BBOSMonster *deadMonster)
                                   -1 == qt->monsterSubType)
                                 )
                             {
-                                q->completeVal = 10000; // finished!
+//								if ((ss->WhatAmI()!=SPACE_DUNGEON) // if it's not a dungeon.
+//									|| ((((DungeonMap *)ss)->specialFlags & SPECIAL_DUNGEON_TEMPORARY) == 0) // or it's not a geo
+//									|| (qt->monsterType !=28 )												 // or it's not a lizardman.
+//									)
+//								{
+									q->completeVal = 10000; // finished!
 
-                                if (q->questSource < MAGIC_MAX)
-                                {
-                                    sprintf(tempText,"***** Quest %d has been completed!", i + 1);
-                                    CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
-                                    ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
+									if (q->questSource < MAGIC_MAX)
+									{
+										sprintf(tempText, "***** Quest %d has been completed!", i + 1);
+										CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+										ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
 
-                                    sprintf(tempText,"***** Return to the Great Tree of the %s for a reward.  ", magicNameList[q->questSource]);
-                                    CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
-                                    ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-                                }
-                                else
-                                {
-                                    questMan->ProcessWitchQuest(this, ss, q);
-                                }
+										sprintf(tempText, "***** Return to the Great Tree of the %s for a reward.  ", magicNameList[q->questSource]);
+										CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+										ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+									}
+									else
+									{
+										questMan->ProcessWitchQuest(this, ss, q);
+									}
+//								}
                             }
                         }
                         else if (QUEST_TARGET_LOCATION == qt->type)
@@ -7801,7 +11399,7 @@ void BBOSAvatar::QuestMonsterKill(SharedSpace *ss, BBOSMonster *deadMonster)
 
                             if (2 == deadMonster->type &&
                                  5 == deadMonster->subType && 0 == qt->monsterType &&
-                                 cellX == qt->x && cellY == qt->y
+                                 cellX == qt->x && cellY == qt->y && IsSame(deadMonster->uniqueName, "Demon Prince")  // Make sure it's actually the demon prince
                                 )
                             {
                                 q->completeVal = 10000; // finished!
@@ -7820,9 +11418,10 @@ void BBOSAvatar::QuestMonsterKill(SharedSpace *ss, BBOSMonster *deadMonster)
                                     questMan->ProcessWitchQuest(this, ss, q);
                                 }
                             }
-                            else if (!strncmp(deadMonster->uniqueName,"Possessed", 9) && 
-                                 qt->monsterType > 0 &&
-                                 qt->mapSubType == GetCRCForString(dm->name))
+                            else if (!strncmp(deadMonster->uniqueName,"Possessed", 9) && // it's a posse
+                                 qt->monsterType > 0 &&                                  // has a proper type
+                                 qt->mapSubType == GetCRCForString(dm->name) &&          // in the right dungeon
+								(q->completeVal==1))									 // this posse quest has it's monster spawned
                             {
                                 q->EmptyOut(); // finished!
 
@@ -7830,9 +11429,10 @@ void BBOSAvatar::QuestMonsterKill(SharedSpace *ss, BBOSMonster *deadMonster)
                                 CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
                                 ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
                             }
-                            else if (IsSame(deadMonster->uniqueName,qt->otherName) && 
-                                 qt->monsterType == deadMonster->type &&
-                                 qt->monsterSubType == deadMonster->subType)
+                            else if ((IsSame(deadMonster->uniqueName,qt->otherName)) &&  // has right name
+                                 (qt->monsterType == deadMonster->type) &&               // and right type
+                                 (qt->monsterSubType == deadMonster->subType) &&         // and right subtype
+								(deadMonster->questowner == this))                       // AND this avatar was the one wwho spawned the monster
                             {
                                 questMan->ProcessWitchQuest(this, ss, q);
                             }
@@ -7885,29 +11485,43 @@ void BBOSAvatar::QuestTalk(SharedSpace *ss)
                                     if (QUEST_PLAYER_TYPE_FIGHTER == qt->playerType &&
                                           other->charInfoArray[other->curCharacterIndex].physical >
                                           other->charInfoArray[other->curCharacterIndex].magical &&
-                                          other->charInfoArray[other->curCharacterIndex].physical >
-                                          other->charInfoArray[other->curCharacterIndex].creative)
+										other->charInfoArray[other->curCharacterIndex].physical >
+										other->charInfoArray[other->curCharacterIndex].creative &&
+										other->charInfoArray[other->curCharacterIndex].physical >
+										other->charInfoArray[other->curCharacterIndex].beast)
                                         found = TRUE;
                                     if (QUEST_PLAYER_TYPE_MAGE == qt->playerType &&
                                           other->charInfoArray[other->curCharacterIndex].magical >
                                           other->charInfoArray[other->curCharacterIndex].physical &&
-                                          other->charInfoArray[other->curCharacterIndex].magical >
-                                          other->charInfoArray[other->curCharacterIndex].creative)
+										other->charInfoArray[other->curCharacterIndex].magical >
+										other->charInfoArray[other->curCharacterIndex].creative &&
+										other->charInfoArray[other->curCharacterIndex].magical >
+										other->charInfoArray[other->curCharacterIndex].beast)
                                         found = TRUE;
-                                    if (QUEST_PLAYER_TYPE_CRAFTER == qt->playerType &&
-                                          other->charInfoArray[other->curCharacterIndex].creative >
-                                          other->charInfoArray[other->curCharacterIndex].magical &&
-                                          other->charInfoArray[other->curCharacterIndex].creative >
-                                          other->charInfoArray[other->curCharacterIndex].physical)
-                                        found = TRUE;
-                                    if (QUEST_PLAYER_TYPE_BALANCED == qt->playerType &&
+									if (QUEST_PLAYER_TYPE_CRAFTER == qt->playerType &&
+										other->charInfoArray[other->curCharacterIndex].creative >
+										other->charInfoArray[other->curCharacterIndex].magical &&
+										other->charInfoArray[other->curCharacterIndex].creative >
+										other->charInfoArray[other->curCharacterIndex].physical &&
+										other->charInfoArray[other->curCharacterIndex].creative >
+										other->charInfoArray[other->curCharacterIndex].beast)
+										found = TRUE;
+									if (QUEST_PLAYER_TYPE_BEASTMASTER == qt->playerType &&
+										other->charInfoArray[other->curCharacterIndex].beast >
+										other->charInfoArray[other->curCharacterIndex].magical &&
+										other->charInfoArray[other->curCharacterIndex].beast >
+										other->charInfoArray[other->curCharacterIndex].physical &&
+										other->charInfoArray[other->curCharacterIndex].beast >
+										other->charInfoArray[other->curCharacterIndex].creative)
+										found = TRUE;
+									if (QUEST_PLAYER_TYPE_BALANCED == qt->playerType &&
                                           other->charInfoArray[other->curCharacterIndex].creative ==
                                           other->charInfoArray[other->curCharacterIndex].magical &&
                                           other->charInfoArray[other->curCharacterIndex].creative ==
                                           other->charInfoArray[other->curCharacterIndex].physical)
                                         found = TRUE;
                                     if (QUEST_PLAYER_TYPE_YOUNG == qt->playerType &&
-                                          other->charInfoArray[other->curCharacterIndex].lifeTime < 12)
+                                          other->charInfoArray[other->curCharacterIndex].cLevel < 10)
                                         found = TRUE;
                                     if (QUEST_PLAYER_TYPE_POOR == qt->playerType &&
                                           other->charInfoArray[other->curCharacterIndex].
@@ -8072,7 +11686,7 @@ void BBOSAvatar::QuestImbue(SharedSpace *ss, InventoryObject *io,
 
                             if (0 == extra->imbueDeviation && extra->type == qt->playerType)
                             {
-                                if (challenge > work / 2)
+                                if ((challenge > work / 2) || ( extra->quality>16))  // better than diamond always counts
                                 {
                                     q->completeVal = 10000; // finished!
                 
@@ -8110,7 +11724,7 @@ void BBOSAvatar::QuestImbue(SharedSpace *ss, InventoryObject *io,
 
                             if (0 == extra->imbueDeviation && extra->type == qt->playerType)
                             {
-                                if (challenge > work / 2)
+                                if ((challenge > work / 2) || (extra->quality>2)) // better than spruce always counts
                                 {
                                     q->completeVal = 10000; // finished!
 
@@ -8287,36 +11901,49 @@ void BBOSAvatar::QuestGiveGold(SharedSpace *ss, BBOSAvatar *other, long amount)
                             {
                                 int found = FALSE;
 
-                                if (QUEST_PLAYER_TYPE_FIGHTER == qt->playerType &&
-                                      other->charInfoArray[other->curCharacterIndex].physical >
-                                      other->charInfoArray[other->curCharacterIndex].magical &&
-                                      other->charInfoArray[other->curCharacterIndex].physical >
-                                      other->charInfoArray[other->curCharacterIndex].creative)
-                                    found = TRUE;
-                                if (QUEST_PLAYER_TYPE_MAGE == qt->playerType &&
-                                      other->charInfoArray[other->curCharacterIndex].magical >
-                                      other->charInfoArray[other->curCharacterIndex].physical &&
-                                      other->charInfoArray[other->curCharacterIndex].magical >
-                                      other->charInfoArray[other->curCharacterIndex].creative)
-                                    found = TRUE;
-                                if (QUEST_PLAYER_TYPE_CRAFTER == qt->playerType &&
-                                      other->charInfoArray[other->curCharacterIndex].creative >
-                                      other->charInfoArray[other->curCharacterIndex].magical &&
-                                      other->charInfoArray[other->curCharacterIndex].creative >
-                                      other->charInfoArray[other->curCharacterIndex].physical)
-                                    found = TRUE;
-                                if (QUEST_PLAYER_TYPE_BALANCED == qt->playerType &&
+								if (QUEST_PLAYER_TYPE_FIGHTER == qt->playerType &&
+									other->charInfoArray[other->curCharacterIndex].physical >
+									other->charInfoArray[other->curCharacterIndex].magical &&
+									other->charInfoArray[other->curCharacterIndex].physical >
+									other->charInfoArray[other->curCharacterIndex].creative &&
+									other->charInfoArray[other->curCharacterIndex].physical >
+									other->charInfoArray[other->curCharacterIndex].beast)
+									found = TRUE;
+								if (QUEST_PLAYER_TYPE_MAGE == qt->playerType &&
+									other->charInfoArray[other->curCharacterIndex].magical >
+									other->charInfoArray[other->curCharacterIndex].physical &&
+									other->charInfoArray[other->curCharacterIndex].magical >
+									other->charInfoArray[other->curCharacterIndex].creative &&
+									other->charInfoArray[other->curCharacterIndex].magical >
+									other->charInfoArray[other->curCharacterIndex].beast)
+									found = TRUE;
+								if (QUEST_PLAYER_TYPE_CRAFTER == qt->playerType &&
+									other->charInfoArray[other->curCharacterIndex].creative >
+									other->charInfoArray[other->curCharacterIndex].magical &&
+									other->charInfoArray[other->curCharacterIndex].creative >
+									other->charInfoArray[other->curCharacterIndex].physical &&
+									other->charInfoArray[other->curCharacterIndex].creative >
+									other->charInfoArray[other->curCharacterIndex].beast)
+									found = TRUE;
+								if (QUEST_PLAYER_TYPE_BEASTMASTER == qt->playerType &&
+									other->charInfoArray[other->curCharacterIndex].beast >
+									other->charInfoArray[other->curCharacterIndex].magical &&
+									other->charInfoArray[other->curCharacterIndex].beast >
+									other->charInfoArray[other->curCharacterIndex].physical &&
+									other->charInfoArray[other->curCharacterIndex].beast >
+									other->charInfoArray[other->curCharacterIndex].creative)
+									found = TRUE; 
+								if (QUEST_PLAYER_TYPE_BALANCED == qt->playerType &&
                                       other->charInfoArray[other->curCharacterIndex].creative ==
                                       other->charInfoArray[other->curCharacterIndex].magical &&
                                       other->charInfoArray[other->curCharacterIndex].creative ==
                                       other->charInfoArray[other->curCharacterIndex].physical)
                                     found = TRUE;
                                 if (QUEST_PLAYER_TYPE_YOUNG == qt->playerType &&
-                                      other->charInfoArray[other->curCharacterIndex].lifeTime < 12)
+                                      other->charInfoArray[other->curCharacterIndex].cLevel<10)
                                     found = TRUE;
                                 if (QUEST_PLAYER_TYPE_POOR == qt->playerType &&
-                                      other->charInfoArray[other->curCharacterIndex].
-                                                 inventory->money < 100)
+                                      other->charInfoArray[other->curCharacterIndex].inventory->money < 100)
                                     found = TRUE;
 
                                 if (found)
@@ -8355,7 +11982,7 @@ void BBOSAvatar::QuestPickupItem(SharedSpace *ss, InventoryObject *io)
     for (int i = 0; i < QUEST_SLOTS; ++i)
     {
         Quest *q = &charInfoArray[curCharacterIndex].quests[i];
-        if (-1    != q->completeVal &&
+        if (1    == q->completeVal &&
              10000 != q->completeVal) // if active quest
         {
             std::vector<TagID> tempReceiptList;
@@ -8374,7 +12001,7 @@ void BBOSAvatar::QuestPickupItem(SharedSpace *ss, InventoryObject *io)
                     if (qt)
                     {
                         if (QUEST_TARGET_LOCATION == qt->type && INVOBJ_SIMPLE == io->type &&
-                             INVSTATUS_QUEST_ITEM == io->status)
+                             INVSTATUS_QUEST_ITEM == io->status && q->completeVal==1)
                         {
                             q->completeVal = 10000; // finished!
                 
@@ -8610,7 +12237,7 @@ int BBOSAvatar::QuestReward(SharedSpace *ss)
                             exStaff->quality  = qt->x;
 
                             iObject->mass = 0.0f;
-                            iObject->value = 500 * (3 + 1) * (3 + 1);
+                            iObject->value = 500 * (qt->x + 1) * (qt->x + 1);
                             iObject->amount = 1;
                             UpdateStaff(iObject, 0);
 
@@ -8748,9 +12375,15 @@ int BBOSAvatar::MagicalStat(void)
 //******************************************************************
 int BBOSAvatar::CreativeStat(void)
 {
-    if (charInfoArray[curCharacterIndex].creative < totemEffects.effect[TOTEM_CREATIVE])
-        return totemEffects.effect[TOTEM_CREATIVE];
-    return charInfoArray[curCharacterIndex].creative;
+	if (charInfoArray[curCharacterIndex].creative < totemEffects.effect[TOTEM_CREATIVE])
+		return totemEffects.effect[TOTEM_CREATIVE];
+	return charInfoArray[curCharacterIndex].creative;
+}
+int BBOSAvatar::BeastStat(void)
+{
+//	if (charInfoArray[curCharacterIndex].creative < totemEffects.effect[TOTEM_BEAST])  // no beast mastery stat totem yet.
+//		return totemEffects.effect[TOTEM_CREATIVE];
+	return charInfoArray[curCharacterIndex].beast;
 }
 
 //*************************************************************************
@@ -8802,11 +12435,39 @@ void BBOSAvatar::DetectIngotTypes(InvBlade *ib, int &type1, int &type2)
     type1 = -1;
     type2 = -1;
 
-    if( ib->maligIngots )
-    {
-        type1 = 10;
-    }
-    
+	if (ib->chromeIngots)
+	{
+		type1 = 14;
+	}
+	if (ib->azraelIngots)
+	{
+		if (type1 == -1)
+			type1 = 13;
+		else if (type2 == -1)
+			type2 = 13;
+	}
+	if (ib->titaniumIngots)
+	{
+		if (type1 == -1)
+			type1 = 12;
+		else if (type2 == -1)
+			type2 = 12;
+	}
+	if (ib->tungstenIngots)
+	{
+		if (type1 == -1)
+			type1 = 11;
+		else if (type2 == -1)
+			type2 = 11;
+	}
+	if (ib->maligIngots)
+	{
+		if (type1 == -1)
+			type1 = 10;
+		else if (type2 == -1)
+			type2 = 10;
+	}
+
     if( ib->chitinIngots )
     {
         if( type1 == -1 )
@@ -8919,10 +12580,10 @@ void BBOSAvatar::AddMastery( SharedSpace *ss ) {
                 case BLADE_TYPE_CLAWS:
                     sprintf( tmp, "Claw Mastery" );
                     break;
-                case BLADE_TYPE_DOUBLE:
-                    sprintf( tmp, "Bladestaff Mastery" );
-                    break;
-            }
+				case BLADE_TYPE_DOUBLE:
+					sprintf(tmp, "Bladestaff Mastery");
+					break;
+			}
                 
         }
 
@@ -8952,7 +12613,7 @@ void BBOSAvatar::AddMastery( SharedSpace *ss ) {
                 ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
             }
 
-            iSkill->skillPoints += 1;
+            iSkill->skillPoints += 1* bboServer->mastery_exp_multiplier;
         }
 
         io = (InventoryObject *) charInfoArray[curCharacterIndex].skills->objects.Next();
@@ -8998,6 +12659,39 @@ int BBOSAvatar::GetMasteryForType( int type ) {
     return 0;
 }
 
+int BBOSAvatar::GetTamingLevel(void) {
+	char tmp[80];
+
+	sprintf(tmp, "Taming");
+
+	InventoryObject *io = (InventoryObject *)charInfoArray[curCharacterIndex].skills->objects.First();
+	while (io) {
+		if (!strcmp(tmp, io->WhoAmI())) {
+			return ((InvSkill *)io->extra)->skillLevel;
+		}
+
+		io = (InventoryObject *)charInfoArray[curCharacterIndex].skills->objects.Next();
+	}
+
+	return 0;
+}
+
+int BBOSAvatar::GetTamingExp(void) {
+	char tmp[80];
+
+	sprintf(tmp, "Taming");
+
+	InventoryObject *io = (InventoryObject *)charInfoArray[curCharacterIndex].skills->objects.First();
+	while (io) {
+		if (!strcmp(tmp, io->WhoAmI())) {
+			return ((InvSkill *)io->extra)->skillPoints;
+		}
+
+		io = (InventoryObject *)charInfoArray[curCharacterIndex].skills->objects.Next();
+	}
+
+	return 0;
+}
 
 /* end of file */
 

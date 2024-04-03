@@ -36,10 +36,20 @@ void BBOSMob::Tick(SharedSpace *ss)
 void BBOSMob::MagicEffect(int type, DWORD time, float amount)
 {
 	// Only take this if it's as powerful as the current
+    // exception for greens
+	if (type==MONSTER_EFFECT_MORE_LOOT) // green can refresh itself.
+	{
+		if (magicEffectAmount[type] <= amount)
+		{
+			magicEffectAmount[type] = amount;
+			magicEffectTimer[type] = time;
+		}
+	}
+	else
 	if (magicEffectAmount[type] < amount)
 	{
 		magicEffectAmount[type] = amount;
-		magicEffectTimer[type]  = time;
+		magicEffectTimer[type] = time;
 	}
 }
 

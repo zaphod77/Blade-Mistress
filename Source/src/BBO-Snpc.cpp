@@ -87,7 +87,25 @@ BBOSNpc::BBOSNpc(int npcType) : BBOSMob(npcType,"NPC")
 		iObject->amount = 100;
 		inventory->objects.Append(iObject);
 
-		iObject = new InventoryObject(INVOBJ_SKILL,0,"Explosives");
+		iObject = new InventoryObject(INVOBJ_SKILL, 0, "Explosives");
+		iObject->mass = 0.0f;
+		iObject->value = 1.0f;
+		iObject->amount = 100;
+		inventory->objects.Append(iObject);
+
+	//	iObject = new InventoryObject(INVOBJ_SKILL, 0, "Disarming");
+	//	iObject->mass = 0.0f;
+	//	iObject->value = 1.0f;
+	//	iObject->amount = 100;
+	//	inventory->objects.Append(iObject);
+
+		iObject = new InventoryObject(INVOBJ_SKILL, 0, "Explosives Mastery");
+		iObject->mass = 0.0f;
+		iObject->value = 1.0f;
+		iObject->amount = 100;
+		inventory->objects.Append(iObject);
+
+		iObject = new InventoryObject(INVOBJ_SKILL, 0, "Drake Mastery");
 		iObject->mass = 0.0f;
 		iObject->value = 1.0f;
 		iObject->amount = 100;
@@ -123,7 +141,13 @@ BBOSNpc::BBOSNpc(int npcType) : BBOSMob(npcType,"NPC")
 		iObject->amount = 100;
 		inventory->objects.Append(iObject);
 
-		iObject = new InventoryObject(INVOBJ_SKILL,0,"Claw Expertise");
+		iObject = new InventoryObject(INVOBJ_SKILL, 0, "Claw Expertise");
+		iObject->mass = 0.0f;
+		iObject->value = 1.0f;
+		iObject->amount = 100;
+		inventory->objects.Append(iObject);
+
+		iObject = new InventoryObject(INVOBJ_SKILL, 0, "Scythe Expertise");
 		iObject->mass = 0.0f;
 		iObject->value = 1.0f;
 		iObject->amount = 100;
@@ -195,7 +219,25 @@ BBOSNpc::BBOSNpc(int npcType) : BBOSMob(npcType,"NPC")
 		iObject->amount = 100;
 		inventory->objects.Append(iObject);
 
-		iObject = new InventoryObject(INVOBJ_SKILL,0,"Totem Shatter");
+		iObject = new InventoryObject(INVOBJ_SKILL, 0, "Totem Shatter");
+		iObject->mass = 0.0f;
+		iObject->value = 1.0f;
+		iObject->amount = 100;
+		inventory->objects.Append(iObject);
+
+		iObject = new InventoryObject(INVOBJ_SKILL, 0, "Taming");
+		iObject->mass = 0.0f;
+		iObject->value = 1.0f;
+		iObject->amount = 100;
+		inventory->objects.Append(iObject);
+
+		iObject = new InventoryObject(INVOBJ_SKILL, 0, "Pet Mastery");
+		iObject->mass = 0.0f;
+		iObject->value = 1.0f;
+		iObject->amount = 100;
+		inventory->objects.Append(iObject);
+
+		iObject = new InventoryObject(INVOBJ_SKILL, 0, "Pet Energy");
 		iObject->mass = 0.0f;
 		iObject->value = 1.0f;
 		iObject->amount = 100;
@@ -238,10 +280,41 @@ void BBOSNpc::Tick(SharedSpace *ss)
 		{
 			if (PlayerInMySquare(ss))
 			{
-				lastReplenishTime += 1000 * 10;
+					lastReplenishTime += 1000 * 10;
+					return;
+			}
+			else if (level == 0) // it's the merchant in a box, go away!
+			{
+				ss->mobList->Remove(this); //todo: vanish properly.
+				delete(this);
 				return;
 			}
+			else if (level == 25) // it's the DoomTower Merchant
+			{
+				// throw away old stuff, so inventory does't overflow
+				InventoryObject *iObject = (InventoryObject *)this->inventory->objects.First();
+				while (iObject)
+				{
+						this->inventory->objects.Remove(iObject);
+						delete iObject;
+						iObject = (InventoryObject *)this->inventory->objects.First();
+				}
+				char tempText[1028];
+				sprintf(tempText, "Tower of Infinity Ticket.");
+				iObject = new InventoryObject(
+					INVOBJ_DOOMKEY_ENTRANCE, 0, tempText);
+				InvDoomKey *exIn = (InvDoomKey *)iObject->extra;
+				exIn->power = 1;
 
+				iObject->mass = 0.0f;
+				iObject->value = 10000;
+				iObject->amount = 100;
+				exIn->width = 10;
+				exIn->height = 10;
+				inventory->AddItemSorted(iObject);
+
+				return;
+			}
 			lastReplenishTime = now;
 
 			goods->Replenish(this);
@@ -328,22 +401,25 @@ void BBOSNpc::Tick(SharedSpace *ss)
 
 			// add bomb making supplies here
 			
+			
 			{
-				iObject = new InventoryObject(INVOBJ_EXPLOSIVE,0,"Charcoal Brick");
+				iObject = new InventoryObject(INVOBJ_EXPLOSIVE, 0, "Charcoal Brick");
 				InvExplosive *extra = (InvExplosive *)iObject->extra;
-				extra->type     = 0;
-				extra->quality  = 1.0f; // explosive power of this one item
-				iObject->value  = 10;
-				iObject->amount = rand() % 30 + 50;
+				extra->type = 0;
+				extra->quality = 1.0f; // explosive power of this one item
+				iObject->value = 10;
+//				iObject->amount = rand() % 30 + 50;
+				iObject->amount = rand() % 30 + 100 * level;
 				inventory->AddItemSorted(iObject);
-			}
+			} 
 			{
 				iObject = new InventoryObject(INVOBJ_FUSE,0,"Twisted Paper");
 				InvFuse *extra = (InvFuse *)iObject->extra;
 				extra->type     = 0;
 				extra->quality  = 1.0f;
 				iObject->value  = 10;
-				iObject->amount = rand() % 30 + 50;
+//				iObject->amount = rand() % 30 + 50;
+				iObject->amount = rand() % 30 + 100*level;
 				inventory->AddItemSorted(iObject);
 			}
 
@@ -361,7 +437,7 @@ void BBOSNpc::Tick(SharedSpace *ss)
 
 				iObject = new InventoryObject(INVOBJ_SIMPLE,0,"Demon Amulet");
 				iObject->value  = 50000;
-				iObject->amount = 1;
+				iObject->amount = 20;
 				inventory->AddItemSorted(iObject);
 			}
 			
@@ -403,10 +479,10 @@ void BBOSNpc::Tick(SharedSpace *ss)
 				InvGeoPart *exIn = (InvGeoPart *)iObject->extra;
 				exIn->type     = 0;
 				exIn->power    = da;
-
+				
 				iObject->mass = 0.0f;
 				iObject->value = 1000 * da * da;
-				iObject->amount = 100/da;
+				iObject->amount = 100/da*((level-1)/2+1);
 				inventory->AddItemSorted(iObject);
 			}
 
@@ -485,11 +561,30 @@ void BBOSNpc::Tick(SharedSpace *ss)
 			iObject->amount = 100;
 			inventory->objects.Append(iObject);
 
-			iObject = new InventoryObject(INVOBJ_SKILL,0,"Explosives");
+			iObject = new InventoryObject(INVOBJ_SKILL, 0, "Explosives");
 			iObject->mass = 0.0f;
 			iObject->value = 1.0f;
 			iObject->amount = 100;
 			inventory->objects.Append(iObject);
+
+//			iObject = new InventoryObject(INVOBJ_SKILL, 0, "Disarming");
+//			iObject->mass = 0.0f;
+//			iObject->value = 1.0f;
+//			iObject->amount = 100;
+//			inventory->objects.Append(iObject);
+
+			iObject = new InventoryObject(INVOBJ_SKILL, 0, "Explosives Mastery");
+			iObject->mass = 0.0f;
+			iObject->value = 1.0f;
+			iObject->amount = 100;
+			inventory->objects.Append(iObject);
+
+			iObject = new InventoryObject(INVOBJ_SKILL, 0, "Drake Mastery");
+			iObject->mass = 0.0f;
+			iObject->value = 1.0f;
+			iObject->amount = 100;
+			inventory->objects.Append(iObject);
+
 
 			iObject = new InventoryObject(INVOBJ_SKILL,0,"Swordsmith");
 			iObject->mass = 0.0f;
@@ -522,6 +617,12 @@ void BBOSNpc::Tick(SharedSpace *ss)
 			inventory->objects.Append(iObject);
 
 			iObject = new InventoryObject(INVOBJ_SKILL,0,"Claw Expertise");
+			iObject->mass = 0.0f;
+			iObject->value = 1.0f;
+			iObject->amount = 100;
+			inventory->objects.Append(iObject);
+
+			iObject = new InventoryObject(INVOBJ_SKILL, 0, "Scythe Expertise");
 			iObject->mass = 0.0f;
 			iObject->value = 1.0f;
 			iObject->amount = 100;
@@ -593,7 +694,25 @@ void BBOSNpc::Tick(SharedSpace *ss)
 			iObject->amount = 100;
 			inventory->objects.Append(iObject);
 
-			iObject = new InventoryObject(INVOBJ_SKILL,0,"Totem Shatter");
+			iObject = new InventoryObject(INVOBJ_SKILL, 0, "Totem Shatter");
+			iObject->mass = 0.0f;
+			iObject->value = 1.0f;
+			iObject->amount = 100;
+			inventory->objects.Append(iObject);
+
+			iObject = new InventoryObject(INVOBJ_SKILL, 0, "Taming");
+			iObject->mass = 0.0f;
+			iObject->value = 1.0f;
+			iObject->amount = 100;
+			inventory->objects.Append(iObject);
+
+			iObject = new InventoryObject(INVOBJ_SKILL, 0, "Pet Mastery");
+			iObject->mass = 0.0f;
+			iObject->value = 1.0f;
+			iObject->amount = 100;
+			inventory->objects.Append(iObject);
+
+			iObject = new InventoryObject(INVOBJ_SKILL, 0, "Pet Energy");
 			iObject->mass = 0.0f;
 			iObject->value = 1.0f;
 			iObject->amount = 100;

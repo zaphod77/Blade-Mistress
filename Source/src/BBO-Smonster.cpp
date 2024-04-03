@@ -9,6 +9,7 @@
 #include "BBO-Savatar.h"
 #include "BBO-Sarmy.h"
 #include "BBO-SAutoQuest.h"
+#include "BBO-SgroundEffect.h"
 #include "ArmyDragonChaplain.h"
 #include ".\helper\GeneralUtils.h"
 #include ".\network\NetWorldMessages.h"
@@ -16,6 +17,9 @@
 #include "MonsterData.h"
 #include "StaffData.h"
 #include ".\helper\crc.h"
+#include "labyrinth-Map.h" // stop those damn bats from flying where we can't get them
+#include "realm-map.h"	   // keep monsters for wandering into pits
+
 
 
 //******************************************************************
@@ -47,6 +51,15 @@ void BBOSMonsterGrave::Tick(SharedSpace *ss)
 		// kill me and create a monster where I was
 		isDead = TRUE;
 	}
+	// this check can fail if spawnTime is very close to the max of a dword.
+	// so we need an additional sanity check to trigger a spawn.
+	DWORD delta = spawnTime-now;
+	if (delta > (1000*60*60*24*10)) // more than ten day difference means we must have overflowed between ticks.
+	{
+		// kill me and create a monster where I was
+		isDead = TRUE;
+	}
+
 }
 
 
@@ -65,6 +78,7 @@ BBOSMonster::BBOSMonster( int t, int st, BBOSGenerator *myGen, bool isVag ) : BB
 	healAmountPerSecond = 1;
 	dontRespawn = FALSE;
 	form = 0;
+	tamingcounter = 0;  // when this reaches 4, the monster is tamed, if tamable.
 
 	inventory = new Inventory(MESS_INVENTORY_MONSTER, this);
 
@@ -75,7 +89,9 @@ BBOSMonster::BBOSMonster( int t, int st, BBOSGenerator *myGen, bool isVag ) : BB
 	curMonsterTarget = NULL;
 	bane = NULL;
 	controllingAvatar = NULL;
+	questowner = NULL;
 	bombDamage = 0;
+	TotalbombDamage = 0;
 
 	uniqueName[0] = 0; // no unique name
 	r = g = b = a = 255;
@@ -151,7 +167,7 @@ void BBOSMonster::Tick(SharedSpace *ss)
 	if (bombDamage > 0 && bombOuchTime <= now)
 	{
 		health -= bombDamage;
-
+		TotalbombDamage += bombDamage;
 		if (health <= 0)
 		{
 			isDead = TRUE;
@@ -209,14 +225,16 @@ void BBOSMonster::Tick(SharedSpace *ss)
 
 		if (0 == moveStartTime || now < moveStartTime) // || now == moveStartTime)
 		{
+//			delta = 500 * 4 + 1;
 			delta = 1000 * 4 + 1;
 		}
 
 		curTarget = FALSE;
 		curMonsterTarget = NULL;
 		// Finish the move
-		if (delta > 1000 * 4)	
-		{
+		 if (delta > 1000 * 4)
+//		if (delta > 500 * 4)
+			{
 			isMoving = FALSE;
 			cellX = targetCellX;
 			cellY = targetCellY;
@@ -277,30 +295,34 @@ void BBOSMonster::Tick(SharedSpace *ss)
 			curMob = (BBOSMob *) ss->avatars->First();
 			while (curMob)
 			{
-				if( curMob->cellX == cellX && 
-					 curMob->cellY == cellY)
+				if((curMob->WhatAmI()==SMOB_AVATAR) && (curMob->cellX == cellX) && 
+					 (curMob->cellY == cellY))
 				{
 					curAvatar = (BBOSAvatar *) curMob;
 
-					// make him aggro
-					if (!curAvatar->curTarget && !curAvatar->isInvisible &&
-						 !controllingAvatar &&
-						 !(dm && dm->CanEdit(curAvatar))
-						)
+					// make her aggro
+					if (!curAvatar->curTarget && !curAvatar->isInvisible && // doesn't already have a target and is not invisible
+						 !controllingAvatar &&								// and i'm not controlled
+						 !(dm && dm->CanEdit(curAvatar)) && !curAvatar->controlledMonster // avatar is not a dungeon mistress, and not controllign a monster
+						&& type!=31) // i'm not a Unicorn
 					{
-						curAvatar->lastAttackTime = now;
-						curAvatar->curTarget = this;
+						   // make the character aggro,
+							curAvatar->lastAttackTime = now;
+							curAvatar->curTarget = this;
+					}
+					if (type == 31)
+					{
+						curAvatar = NULL; // forget about the avatar if i'm a unicorn, since it wasn't made to attack me.
 					}
 
 				}
 				curMob = (BBOSMob *) ss->avatars->Next();
 			}
-
-			// and if the avatar attacks me, I'm gonna attack him right back!
-			if (!curTarget && curAvatar && !curAvatar->isInvisible &&
-						 !controllingAvatar && !(dm && dm->CanEdit(curAvatar)))
+			// and if i saw any avatar in this square, i'm going to attack one of them!
+			if (!curMonsterTarget && !curTarget && curAvatar && !curAvatar->isInvisible && // i'm not already attacking something, there's an avatar i noticed, it's not invisible
+						 !controllingAvatar && !(dm && dm->CanEdit(curAvatar)))			   // i'm not being controlled, and the avatar is not a dungeon mistress 
 			{
-				lastAttackTime = now - (rand() % 1000);
+				lastAttackTime = now - (rand() % 1000);  // I will swing back.
 				curTarget = curAvatar;
 			}
 
@@ -312,7 +334,63 @@ void BBOSMonster::Tick(SharedSpace *ss)
 					controllingAvatar->UpdateClient(sx);
 				}
 			}
+			// look for army monsters in the square if fi'm a beast master
+			if (controllingAvatar && !controllingAvatar->followMode && controllingAvatar->BeastStat() > 9)
+			{
+				curMob = ss->mobList->GetFirst(cellX, cellY, 0);
+				while (curMob)
+				{
+					if (SMOB_MONSTER == curMob->WhatAmI())
+					{
+						BBOSMonster * curMonster;
+						curMonster = (BBOSMonster *)curMob;
 
+						// make him aggro
+						if (!curMonster->curTarget &&
+							!curMonster->controllingAvatar &&
+							curMonster->myGenerator &&
+							(curMonster->myGenerator->do_id > 0) // it's an army monster
+							)
+						{
+							curMonster->lastAttackTime = now - (rand() % 1000);
+							curMonster->curMonsterTarget = this;
+						}
+						else
+							curMonster = NULL;
+					}
+					curMob = ss->mobList->GetNext();
+				}
+
+			}
+			// look for beastmaster pets if i'm in an army
+			if (myGenerator&& (myGenerator->do_id==1)) 
+			{
+				//look for monsters
+				curMob = ss->mobList->GetFirst(cellX, cellY, 0);
+				while (curMob)
+				{
+					if (SMOB_MONSTER == curMob->WhatAmI())
+					{
+						BBOSMonster * curMonster;
+						curMonster = (BBOSMonster *)curMob;
+
+						// aggro on the beastmaster pet
+						if (!curTarget && // not already attacking something
+							!curMonsterTarget && //not already attacking a monster
+							curMonster->controllingAvatar && // is controlled
+							curMonster->controllingAvatar->BeastStat()>9 // by a beastmaster
+							)
+						{
+							lastAttackTime = now - (rand() % 1000);
+							curMonsterTarget = curMonster;
+						}
+						else
+							curMonster = NULL;
+					}
+					curMob = ss->mobList->GetNext();
+				}
+
+			}
 		}
 		return;
 	}
@@ -335,7 +413,7 @@ void BBOSMonster::Tick(SharedSpace *ss)
 		tMob = ss->mobList->GetFirst(cellX, cellY);
 		while (tMob && !stillThere)
 		{
-			if (SMOB_MONSTER == tMob->WhatAmI() && curMonsterTarget == tMob)
+			if ((SMOB_MONSTER == tMob->WhatAmI()) && (curMonsterTarget == tMob)) // this sohuldn't happen, but we are checkign anyway.
 				stillThere = TRUE;
 			tMob = ss->mobList->GetNext();
 		}
@@ -357,10 +435,19 @@ void BBOSMonster::Tick(SharedSpace *ss)
 		lastAttackTime = now - (rand() % 100);
 		int didAttack = FALSE;
 
-		if (form > 0)
+		if (form > 0 && type==27) // vlords don't attack in form 1
 			return;
-
+		if (curMonsterTarget && (curMonsterTarget->controllingAvatar) && (curMonsterTarget->controllingAvatar->BeastStat() > 9)) // if already attacking a beastmaster pet
+		{
+			didAttack = TRUE;  // skip the player target as long as the pet is tanking.
+		}
 		if (27 == type && 3 == (rand() % 6))
+		{
+			VLordAttack(ss);
+			didAttack = TRUE;
+			return;
+		}
+		if (30 == type && subType>1 && 2 == (rand() % 3))
 		{
 			VLordAttack(ss);
 			didAttack = TRUE;
@@ -370,197 +457,222 @@ void BBOSMonster::Tick(SharedSpace *ss)
 		curMob = (BBOSMob *) ss->avatars->First();
 		while (curMob && !didAttack && !isDead)
 		{
-			if (curMob == curTarget && curMob->cellX == cellX && curMob->cellY == cellY) 
+			if ((curMob == curTarget) && (curMob->cellX == cellX) && (curMob->cellY == cellY) && (curMob->WhatAmI()==SMOB_AVATAR)) 
 			{
-				didAttack = TRUE;
-				curAvatar = (BBOSAvatar *) curMob;
-
-				InvSkill *skillInfo = NULL;
-				int dodgeMod = 0;
-				int found = 0;
-				InventoryObject *io = (InventoryObject *) curAvatar->charInfoArray[curAvatar->curCharacterIndex].skills->objects.First();
-				while( io && !found )
+				curAvatar = (BBOSAvatar *)curMob;
+				if ((curAvatar->followMode) && (curAvatar->controlledMonster) && (curAvatar->controlledMonster->cellX == cellX) && (curAvatar->controlledMonster->cellY == cellY)) // if avatar has a controlled monster and is in my square
 				{
-					if (!strcmp("Dodging",io->WhoAmI()))
-					{
-						found = 1;
-						skillInfo = (InvSkill *) io->extra;
-						dodgeMod = skillInfo->skillLevel - 1;
-						int addAmount = toHit - dodgeMod;
-						if (addAmount < 0)
-							addAmount = 0;
-						if (addAmount > 10)
-							addAmount = 0;
-						skillInfo->skillPoints += addAmount;
-
-//						if (abs(dodgeMod - toHit) < 3)
-//							skillInfo->skillPoints += 1;
-					}
-					io = (InventoryObject *) curAvatar->charInfoArray[curAvatar->curCharacterIndex].skills->objects.Next();
-				}
-
-				dodgeMod += curAvatar->totemEffects.effect[TOTEM_QUICKNESS];
-
-            //    1. chance = 2d20 + ToHit - player.Physical
-				int cVal = toHit - dodgeMod;
-
-				if (magicEffectAmount[DRAGON_TYPE_WHITE] > 0)
-					cVal -= magicEffectAmount[DRAGON_TYPE_WHITE] * 1.0f;
-
-				int chance = 2 + (rand() % 20) + (rand() % 20) + cVal;
-
-				if (cVal + 40 <= 20) // if monster can't EVER hit
-				{
-					if (6 == (rand() % 20)) // 1-in-20 chance of hitting anyway
-						chance = 30;  // Hit!
-				}
-
-            //    2. if chance > 20, hit was successful
-				if (chance > 20)
-				{
-	            //    3. damage = damage
-					int dDone = damageDone - curAvatar->totemEffects.effect[TOTEM_TOUGHNESS] / 3;
-					if (dDone < 0)
-						dDone = 0;
-
-					if (MONSTER_PLACE_SPIRITS & 
-						 monsterData[type][subType].placementFlags)
-					{
-						float fDone = (float)dDone * 
-							(1.0f - (curAvatar->totemEffects.effect[TOTEM_PROT_SPIRITS] / 30.0f));
-						dDone = (int) fDone;
-					}
-
-					dDone += (int) rnd(0, dDone);
-
-					if (curAvatar->totemEffects.effect[TOTEM_LIFESTEAL] > 0)
-					{
-						int suck = dDone * curAvatar->totemEffects.effect[TOTEM_LIFESTEAL] / 60;
-						dDone += suck;
-						health += suck;
-					}
-
-					if (ACCOUNT_TYPE_ADMIN != curAvatar->accountType)
-						curAvatar->charInfoArray[curAvatar->curCharacterIndex].health -= dDone;
-
-					MessMonsterAttack messAA;
-					messAA.avatarID = curAvatar->socketIndex;
-					messAA.mobID    = (long) this;
-					messAA.damage   = dDone;
-					ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messAA), &messAA,2);
-
-					MessAvatarHealth messHealth;
-					messHealth.avatarID  = curAvatar->socketIndex;
-					messHealth.health    = curAvatar->charInfoArray[curAvatar->curCharacterIndex].health;
-					messHealth.healthMax = curAvatar->charInfoArray[curAvatar->curCharacterIndex].healthMax;
-					ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messHealth), &messHealth,2);
-
-					if (curAvatar->charInfoArray[curAvatar->curCharacterIndex].health <= 0)
-					{
-						curAvatar->charInfoArray[curAvatar->curCharacterIndex].health = 0;
-						curAvatar->isDead = TRUE;
-
-						tempReceiptList.clear();
-						tempReceiptList.push_back(curAvatar->socketIndex);
-						if (SPACE_GROUND == ss->WhatAmI())
-						{
-							sprintf(tempText,"The %s defeats you at %dN %dE.", Name(),
-							256-curAvatar->cellY, 256-curAvatar->cellX);
-						}
-						else if (SPACE_REALM == ss->WhatAmI())
-						{
-							sprintf(tempText,"The %s defeats you in a Mystic Realm at %dN %dE.",
-							Name(),
-							64-curAvatar->cellY, 64-curAvatar->cellX);
-						}
-						else if (SPACE_LABYRINTH == ss->WhatAmI())
-						{
-							sprintf(tempText,"The %s defeats you in the Labyrinth at %dN %dE.",
-							Name(),
-							64-curAvatar->cellY, 64-curAvatar->cellX);
-						}
-						else
-						{
-							sprintf(tempText,"The %s defeats you in the %s (%dN %dE) at %dN %dE.",
-							Name(),
-							((DungeonMap *) ss)->name,
-							256-((DungeonMap *) ss)->enterY, 
-							256-((DungeonMap *) ss)->enterX,
-							((DungeonMap *) ss)->height - curAvatar->cellY, 
-							((DungeonMap *) ss)->width  - curAvatar->cellX);
-						}
-						CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
-						ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-
-					}
-					else if (!(curAvatar->curTarget))
-					{
-						curAvatar->lastAttackTime = now;
-						curAvatar->curTarget = this;
-					}
-
-					if (24 == type) // spidren group
-					{
-						cVal = toHit - dodgeMod;
-
-						if (magicEffectAmount[DRAGON_TYPE_WHITE] > 0)
-							cVal -= magicEffectAmount[DRAGON_TYPE_WHITE] * 1.0f;
-
-						cVal -= curAvatar->totemEffects.effect[TOTEM_PROT_WEB];
-
-						chance = 2 + (rand() % 20) + (rand() % 20) + cVal;
-
-						if (cVal + 40 <= 20) // if monster can't EVER hit
-						{
-							if (6 == (rand() % 20)) // 1-in-20 chance of hitting anyway
-								chance = 30;  // Hit!
-						}
-
-						//    2. if chance > 20, hit was successful
-						if (chance > 20)
-						{
-							// spin a web on her ass!
-							MessMagicAttack messMA;
-							messMA.damage = 30;
-							messMA.mobID = -1;
-							messMA.avatarID = curAvatar->socketIndex;
-							messMA.type = 1;
-							ss->SendToEveryoneNearBut(0, curAvatar->cellX, curAvatar->cellY, 
-											sizeof(messMA), &messMA,3);
-
-							tempReceiptList.clear();
-							tempReceiptList.push_back(curAvatar->socketIndex);
-							sprintf(tempText,"The %s ensnares you in its web!", Name());
-							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
-							ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
-
-							int effectVal = toHit - dodgeMod/2 - curAvatar->totemEffects.effect[TOTEM_PROT_WEB] * 2;
-							if (effectVal < 2)
-								effectVal = 2;
-
-							curAvatar->MagicEffect(MONSTER_EFFECT_BIND, 
-									timeGetTime() + effectVal * 1000, effectVal);
-							curAvatar->MagicEffect(MONSTER_EFFECT_TYPE_BLUE, 
-									timeGetTime() + effectVal * 1000, effectVal);
-
-						}
-					}
+					curMonsterTarget = curAvatar->controlledMonster; // attack the controlled monster 
+					curTarget = NULL;							     // instead of the player
 				}
 				else
 				{
-					// whish!
-					MessMonsterAttack messAA;
-					messAA.avatarID = curAvatar->socketIndex;
-					messAA.mobID    = (long) this;
-					messAA.damage   = -1; // miss!
-					ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messAA), &messAA,2);
+					didAttack = TRUE;
+					curAvatar = (BBOSAvatar *)curMob;
 
-					if (!(curAvatar->curTarget))
+					InvSkill *skillInfo = NULL;
+					int dodgeMod = 0;
+					int found = 0;
+					InventoryObject *io = (InventoryObject *)curAvatar->charInfoArray[curAvatar->curCharacterIndex].skills->objects.First();
+					while (io && !found)
 					{
-						curAvatar->lastAttackTime = now;
-						curAvatar->curTarget = this;
+						if (!strcmp("Dodging", io->WhoAmI()))
+						{
+							found = 1;
+							skillInfo = (InvSkill *)io->extra;
+							dodgeMod = skillInfo->skillLevel - 1;
+							int addAmount = toHit - dodgeMod;
+							if (addAmount < 0)
+								addAmount = 0;
+							if (addAmount > 10)
+								addAmount = 0;
+							skillInfo->skillPoints += addAmount*bboServer->combat_exp_multiplier;
+
+							//						if (abs(dodgeMod - toHit) < 3)
+							//							skillInfo->skillPoints += 1;
+						}
+						if (!strcmp("Pet Energy", io->WhoAmI()) && (curAvatar->followMode))  // beastmaster with pet energy and pet is following
+						{
+							found = 1;
+							skillInfo = (InvSkill *)io->extra;  // get info
+							dodgeMod = skillInfo->skillLevel - 1;        /// pet energy protects you as well if your pet is near
+							// but this doesn't raise your pet's dodge.
+						}
+						io = (InventoryObject *)curAvatar->charInfoArray[curAvatar->curCharacterIndex].skills->objects.Next();
+
 					}
 
+					dodgeMod += curAvatar->totemEffects.effect[TOTEM_QUICKNESS];
+
+					//    1. chance = 2d20 + ToHit - player.Physical
+					int cVal = toHit - dodgeMod;
+
+					if (magicEffectAmount[DRAGON_TYPE_WHITE] > 0)
+						cVal -= magicEffectAmount[DRAGON_TYPE_WHITE] * 1.0f;
+
+					int chance = 2 + (rand() % 20) + (rand() % 20) + cVal;
+
+					if (cVal + 40 <= 20) // if monster can't EVER hit
+					{
+						if (6 == (rand() % 400)) // 1-in-400 chance of hitting anyway
+							chance = 30;  // Hit!
+					}
+
+					//    2. if chance > 20, hit was successful
+					if (chance > 20)
+					{
+						//    3. damage = damage
+						int dDone = damageDone - curAvatar->totemEffects.effect[TOTEM_TOUGHNESS] / 3;
+						if (dDone < 0)
+							dDone = 0;
+
+						if (MONSTER_PLACE_SPIRITS &
+							monsterData[type][subType].placementFlags)
+						{
+							float fDone = (float)dDone *
+								(1.0f - (curAvatar->totemEffects.effect[TOTEM_PROT_SPIRITS] / 30.0f));
+							dDone = (int)fDone;
+						}
+
+						dDone += (int)rnd(0, dDone);
+
+						if (curAvatar->totemEffects.effect[TOTEM_LIFESTEAL] > 0)
+						{
+							int suck = dDone * curAvatar->totemEffects.effect[TOTEM_LIFESTEAL] / 60;
+							dDone += suck;
+							health += suck;
+						}
+						if (curAvatar->totemEffects.effect[TOTEM_FOCUS] > 0 //if character has a focus totem
+							&& dDone >= curAvatar->charInfoArray[curAvatar->curCharacterIndex].healthMax) // and damage greater than or equal to max health
+							dDone = curAvatar->charInfoArray[curAvatar->curCharacterIndex].healthMax - 1; // lower damage to max health-1 to not oneshot from full health
+						if (ACCOUNT_TYPE_ADMIN != curAvatar->accountType)
+							curAvatar->charInfoArray[curAvatar->curCharacterIndex].health -= dDone;
+
+						MessMonsterAttack messAA;
+						messAA.avatarID = curAvatar->socketIndex;
+						messAA.mobID = (long)this;
+						messAA.damage = dDone;
+						ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messAA), &messAA, 2);
+
+						MessAvatarHealth messHealth;
+						messHealth.avatarID = curAvatar->socketIndex;
+						messHealth.health = curAvatar->charInfoArray[curAvatar->curCharacterIndex].health;
+						messHealth.healthMax = curAvatar->charInfoArray[curAvatar->curCharacterIndex].healthMax;
+						ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messHealth), &messHealth, 2);
+
+						if (curAvatar->charInfoArray[curAvatar->curCharacterIndex].health <= 0)
+						{
+							curAvatar->charInfoArray[curAvatar->curCharacterIndex].health = 0;
+							curAvatar->isDead = TRUE;
+
+							tempReceiptList.clear();
+							tempReceiptList.push_back(curAvatar->socketIndex);
+							if (SPACE_GROUND == ss->WhatAmI())
+							{
+								sprintf(tempText, "The %s defeats you at %dN %dE.", Name(),
+									256 - curAvatar->cellY, 256 - curAvatar->cellX);
+							}
+							else if (SPACE_REALM == ss->WhatAmI())
+							{
+								sprintf(tempText, "The %s defeats you in a Mystic Realm at %dN %dE.",
+									Name(),
+									64 - curAvatar->cellY, 64 - curAvatar->cellX);
+							}
+							else if (SPACE_LABYRINTH == ss->WhatAmI())
+							{
+								sprintf(tempText, "The %s defeats you in the Labyrinth at %dN %dE.",
+									Name(),
+									64 - curAvatar->cellY, 64 - curAvatar->cellX);
+							}
+							else
+							{
+								sprintf(tempText, "The %s defeats you in the %s (%dN %dE) at %dN %dE.",
+									Name(),
+									((DungeonMap *)ss)->name,
+									256 - ((DungeonMap *)ss)->enterY,
+									256 - ((DungeonMap *)ss)->enterX,
+									((DungeonMap *)ss)->height - curAvatar->cellY,
+									((DungeonMap *)ss)->width - curAvatar->cellX);
+							}
+							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+
+						}
+						else if (!(curAvatar->curTarget))
+						{
+							curAvatar->lastAttackTime = now;
+							curAvatar->curTarget = this;
+						}
+						if (31 == type) // unicorn,
+						{
+							if ((rand() % 10) < (type + 1)) // better unicorms do it more often
+							{
+								UnicornAttack(ss); // pretty attack
+							}
+						}
+						if (24 == type) // spidren group
+						{
+							cVal = toHit - dodgeMod;
+
+							if (magicEffectAmount[DRAGON_TYPE_WHITE] > 0)
+								cVal -= magicEffectAmount[DRAGON_TYPE_WHITE] * 1.0f;
+
+							cVal -= curAvatar->totemEffects.effect[TOTEM_PROT_WEB];
+
+							chance = 2 + (rand() % 20) + (rand() % 20) + cVal;
+
+							if (cVal + 40 <= 20) // if monster can't EVER hit
+							{
+								if (6 == (rand() % 400)) // 1-in-400 chance of hitting anyway
+									chance = 30;  // Hit!
+							}
+
+							//    2. if chance > 20, hit was successful
+							if (chance > 20)
+							{
+								// spin a web on her ass!
+								MessMagicAttack messMA;
+								messMA.damage = 30;
+								messMA.mobID = -1;
+								messMA.avatarID = curAvatar->socketIndex;
+								messMA.type = 1;
+								ss->SendToEveryoneNearBut(0, curAvatar->cellX, curAvatar->cellY,
+									sizeof(messMA), &messMA, 3);
+
+								tempReceiptList.clear();
+								tempReceiptList.push_back(curAvatar->socketIndex);
+								sprintf(tempText, "The %s ensnares you in its web!", Name());
+								CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+								ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+
+								int effectVal = toHit - dodgeMod / 2 - curAvatar->totemEffects.effect[TOTEM_PROT_WEB] * 2;
+								if (effectVal < 2)
+									effectVal = 2;
+
+								curAvatar->MagicEffect(MONSTER_EFFECT_BIND,
+									timeGetTime() + effectVal * 1000, effectVal);
+								curAvatar->MagicEffect(MONSTER_EFFECT_TYPE_BLUE,
+									timeGetTime() + effectVal * 1000, effectVal);
+
+							}
+						}
+					}
+					else
+					{
+						// whish!
+						MessMonsterAttack messAA;
+						messAA.avatarID = curAvatar->socketIndex;
+						messAA.mobID = (long)this;
+						messAA.damage = -1; // miss!
+						ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messAA), &messAA, 2);
+
+						if (!(curAvatar->curTarget))
+						{
+							curAvatar->lastAttackTime = now;
+							curAvatar->curTarget = this;
+						}
+
+					}
 				}
 			}
 			curMob = (BBOSMob *) ss->avatars->Next();
@@ -574,13 +686,75 @@ void BBOSMonster::Tick(SharedSpace *ss)
 	}
 
 	// ******************** attack curMonsterTarget
-	if (curMonsterTarget && 
-		 delta > 1000 * 2 + magicEffectAmount[DRAGON_TYPE_BLUE] * 300 &&
-		 magicEffectAmount[MONSTER_EFFECT_STUN] <= 0)
+	if (curMonsterTarget && curMonsterTarget != this &&
+		delta > 1000 * 2 + magicEffectAmount[DRAGON_TYPE_BLUE] * 300 &&
+		magicEffectAmount[MONSTER_EFFECT_STUN] <= 0)
 	{
 		lastAttackTime = now;
-
-		int cVal = toHit - curMonsterTarget->defense;
+		int didAttack = FALSE;
+		if (form > 0 && type == 27) // vlords don't attack in form 1
+			return;
+		if (controllingAvatar && controllingAvatar->BeastStat() > 9) // if i'm a beastmaster pet
+		{
+			//chance of spin attacks against monsters
+			if (27 == type && 3 == (rand() % 6))
+			{
+				BMVLordAttack(ss);
+				didAttack = TRUE;
+				return;
+			}
+			if (30 == type && subType > 1 && 2 == (rand() % 3))
+			{
+				BMVLordAttack(ss);
+				didAttack = TRUE;
+				return;
+			}
+		}
+		// trigger normal spin attacks if attacking a beastmaster pet and not being controlled.
+		if (!controllingAvatar && curMonsterTarget && (curMonsterTarget->controllingAvatar) && (curMonsterTarget->controllingAvatar->BeastStat() > 9)) // if i'm not a pet, but i'm attacking one.
+		{
+			// do the against player AOE so i can strike the beastmaster anyway if he's inn the square :)
+			if (27 == type && 3 == (rand() % 6))
+			{
+				VLordAttack(ss);
+				didAttack = TRUE;
+				return;
+			}
+			if (30 == type && subType > 1 && 2 == (rand() % 3))
+			{
+				VLordAttack(ss);
+				didAttack = TRUE;
+				return;
+			}
+		}
+		// if Pet Energy is higher, use that instead of own defense
+		int petenergy=0;
+		if (curMonsterTarget->controllingAvatar // safe because we have a curMonstertarget
+			&& curMonsterTarget->controllingAvatar->BeastStat() > 9) // beast stat > 9
+		{
+			// go through skills
+			InventoryObject *io = (InventoryObject *)
+				curMonsterTarget->controllingAvatar->charInfoArray[curMonsterTarget->controllingAvatar->curCharacterIndex].skills->objects.First();
+			while (io)
+			{
+				if (!strcmp("Pet Energy", io->WhoAmI())) // check for pet energy (beastmaster version of dodge)
+				{
+					InvSkill *skillInfo = (InvSkill *)io->extra;
+					petenergy = skillInfo->skillLevel;
+				}
+				io = (InventoryObject *)
+					curMonsterTarget->controllingAvatar->charInfoArray[curMonsterTarget->controllingAvatar->curCharacterIndex].skills->objects.Next();
+			}
+		}
+		int cVal;
+		if (petenergy> curMonsterTarget->defense)
+		{
+			cVal = toHit -petenergy;
+		}
+		else
+		{
+			cVal = toHit - curMonsterTarget->defense;
+		}
 
 		if (magicEffectAmount[DRAGON_TYPE_WHITE] > 0)
 			cVal -= magicEffectAmount[DRAGON_TYPE_WHITE] * 1.0f;
@@ -589,10 +763,17 @@ void BBOSMonster::Tick(SharedSpace *ss)
 
 		if (cVal + 40 <= 20) // if monster can't EVER hit
 		{
-			if (6 == (rand() % 20)) // 1-in-20 chance of hitting anyway
+			if (6 == (rand() % 400)) // 1-in-400 chance of hitting anyway
 				chance = 30;  // Hit!
 		}
-
+		if (controllingAvatar && (controllingAvatar->BeastStat() > 9))  // if controlled by a beastmaster
+		{
+			// extra chance to hit based on age
+			if (rand() % 16 < controllingAvatar->charInfoArray[controllingAvatar->curCharacterIndex].age)  // wtf
+			{
+				chance = 30;  // Hit!
+			}
+		}
       //    2. if chance > 20, hit was successful
 		if (chance > 20)
 		{
@@ -602,7 +783,26 @@ void BBOSMonster::Tick(SharedSpace *ss)
 				dDone = 0;
 
 			dDone += (int) rnd(0, dDone);
+			if (controllingAvatar && (controllingAvatar->BeastStat() > 9)) // if beastmaster
+			{
+				// add mastery damage.
+				InventoryObject *io = (InventoryObject *)controllingAvatar->charInfoArray[controllingAvatar->curCharacterIndex].skills->objects.First();
+				bool found = FALSE;
+				char tmp[80];
+				MessInfoText infoText;
 
+				sprintf(tmp, "Pet Mastery");
+				while (io && !found) {
+					if (!strcmp(tmp, io->WhoAmI())) {
+						InvSkill *iSkill = (InvSkill *)io->extra;
+						found = 1;
+							dDone += (iSkill->skillLevel*controllingAvatar->BeastStat()); // add beast stat to damage of each pet for each level of pet mastery. Very useful at first level for starting beast master
+						}
+
+
+					io = (InventoryObject *)controllingAvatar->charInfoArray[controllingAvatar->curCharacterIndex].skills->objects.Next();
+				}
+			}
 			MessMonsterAttack messAA;
 			messAA.avatarID = (int) curMonsterTarget;
 			messAA.mobID    = (long) this;
@@ -610,13 +810,81 @@ void BBOSMonster::Tick(SharedSpace *ss)
 			ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messAA), &messAA,2);
 
 			curMonsterTarget->health -= dDone;
+			// damage done boosts pet energy
+			// if target is controlled by a beastmaster
+			if (curMonsterTarget->controllingAvatar // safe because we have a curMonstertarget
+				&& curMonsterTarget->controllingAvatar->BeastStat() > 9) // beast stat > 9
+			{
+				// go through skills
+				InventoryObject *io = (InventoryObject *)
+					curMonsterTarget->controllingAvatar->charInfoArray[curMonsterTarget->controllingAvatar->curCharacterIndex].skills->objects.First();
+				while (io)
+				{
+					if (!strcmp("Pet Energy", io->WhoAmI())) // check for pet energy (beastmaster version of dodge)
+					{
+						InvSkill *skillInfo = (InvSkill *)io->extra;
+						skillInfo->skillPoints += (1+min((dDone/2),9))*bboServer->combat_exp_multiplier; // always at least 1, but no more than 10 
+					}
+					io = (InventoryObject *)
+						curMonsterTarget->controllingAvatar->charInfoArray[curMonsterTarget->controllingAvatar->curCharacterIndex].skills->objects.Next();
+				}
+			}
 
+			if (controllingAvatar && (controllingAvatar->BeastStat() > 9)) // beastmaster controlled monster attacking
+			{
+				curMonsterTarget->RecordDamageForLootDist(dDone, controllingAvatar); // credit the controller for the damage.  this ensures that the controller gets loot and trips quest death flags.
+				// and raise characters Pet Mastery
+				InventoryObject *io = (InventoryObject *)controllingAvatar->charInfoArray[controllingAvatar->curCharacterIndex].skills->objects.First();
+				bool found = FALSE;
+				char tmp[80];
+				char tempText[80];
+				MessInfoText infoText;
+
+				sprintf(tmp, "Pet Mastery");
+				while (io && !found) {
+					if (!strcmp(tmp, io->WhoAmI())) {
+						InvSkill *iSkill = (InvSkill *)io->extra;
+						found = 1;
+						// stays slow as the other masteries, but this one will give clevels.
+						if (iSkill->skillLevel < 100 && iSkill->skillLevel * 100000 <= iSkill->skillPoints) { 
+							std::vector<TagID> tempReceiptList;
+
+							tempReceiptList.clear();
+							tempReceiptList.push_back(controllingAvatar->socketIndex);
+
+							// made a skill level!!!
+							iSkill->skillLevel += 1;
+
+							sprintf(tempText, "You gained %s skill!! You feel more in tune with your pets.", tmp);
+							CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);;
+
+							ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+						}
+
+						iSkill->skillPoints += 1* bboServer->mastery_exp_multiplier;
+					}
+
+					io = (InventoryObject *)controllingAvatar->charInfoArray[controllingAvatar->curCharacterIndex].skills->objects.Next();
+				}
+			}
 			MessMonsterHealth messMH;
 			messMH.mobID = (unsigned long)curMonsterTarget;
 			messMH.health = curMonsterTarget->health;
 			messMH.healthMax = curMonsterTarget->maxHealth;
 			ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messMH),(void *)&messMH, 2);
-
+			// send attack event to army so they will move in on me.
+			if (curMonsterTarget->myGenerator && 1 == curMonsterTarget->myGenerator->WhatAmI()) // target has a genrator,a dn it's an army
+			{
+				BBOSArmy *army = (BBOSArmy *)curMonsterTarget->myGenerator;
+				army->MonsterEvent(curMonsterTarget, ARMY_EVENT_ATTACKED); // send attack event to tell army that this member was attacked.
+				//				curMob = (BBOSMob *) ss->mobs->Find(this);
+			}
+			if (curMonsterTarget->myGenerator && 2 == curMonsterTarget->myGenerator->WhatAmI()) // target has a genrator,a dn it's an quest
+			{
+				BBOSAutoQuest *quest = (BBOSAutoQuest *)curMonsterTarget->myGenerator;
+				quest->MonsterEvent(curMonsterTarget, AUTO_EVENT_ATTACKED); // send attack event to tell quest that this member was attacked (if it cares).
+				//				curMob = (BBOSMob *) ss->mobs->Find(this);
+			}
 			// if monster dies
 			if (curMonsterTarget->health <= 0)
 			{
@@ -626,11 +894,61 @@ void BBOSMonster::Tick(SharedSpace *ss)
 				messAA.damage   = -1000;
 //				messAA.health   = -1000;
 				ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messAA), &messAA, 2);
+				// beastmasters pet stats improve for killing monsters.
+				if (controllingAvatar && (controllingAvatar->BeastStat() > 9))
+				{
+					// do stat check to see if we can get a boost.
+					if (defense <= curMonsterTarget->toHit) // if monsters tohit >= defense
+					{
+						//boost some stats
+						maxHealth = maxHealth * (defense + 1) / defense; //recalculate health as if it were a higher level monster.
+						defense++; // better defense to keep from gettign advancement from the same types of monsters.
+						toHit++;   // so we can hit more often.
+						damageDone++; // and do some more damage.
+						controllingAvatar->SaveAccount(); // and save the character so the pets boosted stats get saved.
+						// and, sometimes, add gold dust to the dead monster's inventory
+						bool GiveGold = FALSE;  // default, will set to true later.
+						int GoldEveryXLevels = 1; // change me to make them more or less common.
+						if ((controllingAvatar->GetTamingExp() < 1) && (controllingAvatar->GetTamingLevel()<2)) // no tame skill, or haven't tamed the next golem.
+						{
+							// we haven't tamed anything else, you are allowed to reset to gather more golds for your first Scythe
+							GiveGold = TRUE;
+						}
+						if ((controllingAvatar->GetTamingLevel() != type) || (controllingAvatar->GetTamingExp() != 1)) // if current monster is not the one that will be replaced if you release
+						{
+							// we will have to retame a new one to bump it's level back, using charges.
+							GiveGold = TRUE;
+						}
+						if (type>26) // if monster is vlord or better
+						{
+							// go ahead and let them get gold dust anyway, even if the level is reset. tey are already hard to level withotu spending mucho gold
+							GiveGold = TRUE;
+						}
+						if (GiveGold && ((defense-monsterData[type][subType].defense) % GoldEveryXLevels) == 0) // every five levels, if we aren't disqualified.
+						{
+							// create a new Glowing Gold dust
+							InventoryObject * iObject = new InventoryObject(INVOBJ_INGREDIENT, 0, "Glowing Gold Dust");
+							InvIngredient * exIn = (InvIngredient *)iObject->extra;
+							exIn->type = INGR_GOLD_DUST;
+							exIn->quality = 1;
 
+							iObject->mass = 0.0f;
+							iObject->value = 1000;
+							iObject->amount = 1;
+							// add it to the inventory of the monster that's about to die
+							curMonsterTarget->inventory->AddItemSorted(iObject);
+
+						}
+					}
+				}
 				curMonsterTarget->isDead = TRUE;
 				curMonsterTarget->bane = NULL;
+				if (controllingAvatar)
+				{
+					curMonsterTarget->bane = controllingAvatar;  // set bane
+					curMonsterTarget->HandleQuestDeath();		 // call quest death handler
+				}
 
-//				curMonsterTarget->HandleQuestDeath();
 
 				if (curMonsterTarget->myGenerator && 1 == curMonsterTarget->myGenerator->WhatAmI())
 				{
@@ -641,11 +959,27 @@ void BBOSMonster::Tick(SharedSpace *ss)
 
 					ss->mobList->SetState(oldState);
 				}
+				else if (curMonsterTarget->myGenerator && 2 == curMonsterTarget->myGenerator->WhatAmI())
+				{
+					MapListState oldState = ss->mobList->GetState();
+
+					BBOSAutoQuest *quest = (BBOSAutoQuest *)curMonsterTarget->myGenerator;
+					quest->MonsterEvent(curMonsterTarget, AUTO_EVENT_DIED);
+
+					ss->mobList->SetState(oldState);
+				}
 			}
 			else if (!curMonsterTarget->HasTarget())
 			{
 				curMonsterTarget->lastAttackTime = now;
 				curMonsterTarget->curMonsterTarget = this;
+			}
+			if (31 == type) // unicorn,
+			{
+				if ((rand() % 10) < (subType + 1)) // better unicorms do it more often
+				{
+					BMUnicornAttack(ss); // pretty attack
+				}
 			}
 
 			if (24 == type) // spidren group
@@ -659,7 +993,7 @@ void BBOSMonster::Tick(SharedSpace *ss)
 
 				if (cVal + 40 <= 20) // if monster can't EVER hit
 				{
-					if (6 == (rand() % 20)) // 1-in-20 chance of hitting anyway
+					if (6 == (rand() % 400)) // 1-in-400 chance of hitting anyway
 						chance = 30;  // Hit!
 				}
 
@@ -701,6 +1035,29 @@ void BBOSMonster::Tick(SharedSpace *ss)
 				curMonsterTarget->lastAttackTime = now;
 				curMonsterTarget->curMonsterTarget = this;
 			}
+			// if you pet's natural defese is above pet energy, then you can get boost for misses as well
+			if (curMonsterTarget->controllingAvatar // safe because we have a curMonstertarget
+				&& curMonsterTarget->controllingAvatar->BeastStat() > 9) // beast stat > 9
+			{
+				// go through skills
+				InventoryObject *io = (InventoryObject *)
+					curMonsterTarget->controllingAvatar->charInfoArray[curMonsterTarget->controllingAvatar->curCharacterIndex].skills->objects.First();
+				while (io)
+				{
+					if (!strcmp("Pet Energy", io->WhoAmI())) // check for pet energy (beastmaster version of dodge)
+					{
+						InvSkill *skillInfo = (InvSkill *)io->extra;
+						if (skillInfo->skillLevel < curMonsterTarget->defense) // our pet energy is behindpos
+						{
+							int energydiff = toHit - skillInfo->skillLevel+1;
+							if ((energydiff > 0) && (energydiff < 11))
+								skillInfo->skillPoints += energydiff*bboServer->combat_exp_multiplier;
+						}
+					}
+					io = (InventoryObject *)
+						curMonsterTarget->controllingAvatar->charInfoArray[curMonsterTarget->controllingAvatar->curCharacterIndex].skills->objects.Next();
+				}
+			}
 		}
 	}
 
@@ -717,7 +1074,7 @@ void BBOSMonster::Tick(SharedSpace *ss)
 		lastHealTime = now;
 		health += healAmountPerSecond;
 
-		if (7 == type && 4 == subType) // Dragon Overlord
+		if ((7 == type && 4 == subType) && (!controllingAvatar)) // Dragon Overlord NOT under control. admins cna give it back it's regen.
 		{
 			if (!strcmp(uniqueName,"Dragon Chaplain"))
 			{
@@ -758,7 +1115,7 @@ void BBOSMonster::Tick(SharedSpace *ss)
 			else
 				health += 600;
 		}
-		else if (7 == type && 3 == subType) // Dragon Archon
+		else if ((7 == type && 3 == subType) && (!controllingAvatar)) // Dragon Archon NOT controlled by a player
 		{
 			if (!strcmp(uniqueName,"Dragon Prelate"))
 			{
@@ -771,13 +1128,21 @@ void BBOSMonster::Tick(SharedSpace *ss)
 			else
 				health += 150;
 		}
-		else if (24 == type && 4 == subType) // Grey Spidren
+		else if (24 == type && 4 == subType && (!controllingAvatar)) // lab bosses, player can get one if clever, so no regen.
 		{
-			healAmountPerSecond = 200 * sizeCoeff;
+			healAmountPerSecond = 120 * sizeCoeff;
 		}
-		else if (27 == type) // vlords
+		else if ((27 == type) && (!controllingAvatar)) // vlords
 		{
-			healAmountPerSecond = 200 * (1+ subType);
+			healAmountPerSecond = 200 * (1 + subType);
+			if (healAmountPerSecond < 250)  // if it's baph
+				healAmountPerSecond = 250;  // boost it a bit.
+		}
+		else if ((30 == type) && (!controllingAvatar))// butterflies
+		{
+			healAmountPerSecond = 600 * (subType -1);
+			if (healAmountPerSecond < 1)  // for non boss butterfies that have 0 or negative regen
+				healAmountPerSecond = 1;  // their regen is fixed back to 1.
 		}
 
 
@@ -786,9 +1151,124 @@ void BBOSMonster::Tick(SharedSpace *ss)
 			health = maxHealth;
 			archMageMode = FALSE;
 		}
+		// also run AI checks.
+		if (SpecialAI)
+		{
+			// monster has special behavior
+			AICounter++; // bump the counter up. this is to allow for actions to hapen after a number of seconds.  teh script can change this later.
+			// big bad boss A.I.
+			if (type == 33) // doesnt' exist yet, but we need to code this
+			{
+				AICounter--; // undo the counter increment, this monster uses the couter for other reasons.
+				// first check for players on the map
+				BBOSMob *curMob2 = (BBOSMob *)ss->avatars->First();
+				if (!curMob2) // if ther are no players on my map
+				{
+					// complete reset
+					AICounter = 0;         // reset counter
+					cellX = spawnX;        // go back to spawn whiel nobody is looking.
+					cellY = spawnY;
+					targetCellX = spawnX;  // target spawn
+					targetCellY = spawnY;
+					health = maxHealth;		// get back all health
+					
+					for (int x = 0; x < MONSTER_EFFECT_TYPE_NUM; ++x)
+					{
+						MonsterMagicEffect(x, 0, 0); // clear all magic effects
+					}
+					// despawn stuff created
+				}
+				else
+				{
+					// there is at least one player here
+					// scan player list for people with stat totems
+					while (curMob2)
+					{
+						BBOSAvatar * curCheater = (((BBOSAvatar *)curMob2));
+						if ((curCheater->charInfoArray[curCheater->curCharacterIndex].creative < curCheater->CreativeStat())
+							|| (curCheater->charInfoArray[curCheater->curCharacterIndex].magical < curCheater->MagicalStat())
+							|| (curCheater->charInfoArray[curCheater->curCharacterIndex].physical < curCheater->PhysicalStat())) // if the character has a stat totem
+						{
+							// boss instakills you, he considers stat totems cheating!
+							// sends you a message
 
-//		if (ss->map.toughestMonsterPoints[cellX][cellY] < maxHealth)
-//			ss->map.toughestMonsterPoints[cellX][cellY] = maxHealth;
+							std::vector<TagID> targetReceiptList;
+							targetReceiptList.clear();
+							targetReceiptList.push_back(curAvatar->socketIndex);
+
+							sprintf(&(tempText[1]), "The Boss tells you, I despise cheaters!  Return without your stat totem!");
+							tempText[0] = NWMESS_PLAYER_CHAT_LINE;
+							ss->lserver->SendMsg(strlen(tempText) + 1, (void *)&tempText, 0, &targetReceiptList);
+							curCheater->charInfoArray[curCheater->curCharacterIndex].health = 0;    // dead
+							curCheater->isDead = TRUE;												// you're dead!
+						}
+						curMob2 = (BBOSMob *)ss->avatars->Next();
+					}
+					
+				}
+
+			}
+			// Unicorn AI, when enabled.
+			if (type == 31) // unicorn
+			{
+//				if (subType > 0) //types greater than zero
+//				{
+//					if (AICounter > 3600)   // hour has passed
+//					{
+//						AICounter = 0;		// reset the counter
+//						SpecialAI = FALSE;  // turn off my AI, because i'm gonna poof later
+//						// summon a Unicorn of lesser type, if in normal realm
+//						if (ss->WhatAmI() == SPACE_GROUND)
+//						{
+//							// add new unicorn in my square
+//							BBOSMonster *monster = new BBOSMonster(31, subType - 1, NULL);
+//							monster->cellX = monster->targetCellX = monster->spawnX = cellX; 
+//							monster->cellY = monster->targetCellY = monster->spawnY = cellY;
+//							monster->SpecialAI = TRUE;										  // new Unicorn has my AI.
+//							ss->mobList->Add(monster);
+//						}
+//						// kill myself with no loot
+//						type = 25; // vamp me
+//						dropAmount = 0; // remove drops
+//						health = 0;
+//						isDead = TRUE;
+//					}
+//				}
+				if (controllingAvatar) //if i'm controlled
+				{
+					SpecialAI = FALSE; // turn off my AI, i wont do anything else
+					if ((ss->WhatAmI()==SPACE_GROUND) && (controllingAvatar->BeastStat() > 9)) // if controlled by a BeastMaster and on main map
+					{
+						// we spawn a new one elsewhere. not on the edge
+						int town = rand() % NUM_OF_TOWNS;
+						int randomX = rand() % 10 - 4;
+						int randomY = rand() % 10 - 4;
+						int newSub = subType;
+						if (newSub > 5)
+							newSub = 5;
+						BBOSMonster *monster = new BBOSMonster(31, newSub, NULL);
+						monster->cellX = monster->targetCellX = monster->spawnX = randomX + townList[town].x;
+						monster->cellY = monster->targetCellY = monster->spawnY = randomY + townList[town].y;
+						monster->SpecialAI = TRUE;										  // Shiny Unicorn has an AI.
+						bboServer->UnicornLocations[monster->subType][0] = monster->cellX;
+						bboServer->UnicornLocations[monster->subType][1] = monster->cellY;
+						ss->mobList->Add(monster);
+
+					}
+
+				}
+				if (!ss->CanMove(cellX, cellY, cellX, cellY))  // somehow ended up on a square i can't move to
+				{
+					SpecialAI = FALSE; // shut off to avoid possible crash
+					dropAmount = 0; // drop no loot
+					type = 25;      // vamp me
+					health = 0;
+					maxHealth = 0;     // i'm dead and will be replaced
+					isDead = TRUE;
+
+				}
+			}
+		}
 
 	}
 	
@@ -822,20 +1302,33 @@ void BBOSMonster::Tick(SharedSpace *ss)
 			}
 		}
 
-		if (!strncmp(uniqueName,"Revenant", 8))
+		if (!strncmp(uniqueName, "Revenant", 8)) // revs get cleaned up at end of the day
 		{
 			LongTime ltNow;
 			if (creationLongTime.MinutesDifference(&ltNow) > 60 * 24)
 			{
 				// die with no loot for anyone!
 				for (int i = 0; i < 10; ++i)
-					attackerPtrList[i] = NULL; 
+					attackerPtrList[i] = NULL;
+				isDead = TRUE;
+				dropAmount = 0; // dont' drop anything!
+			}
+		}
+		if (!strncmp(uniqueName, "Storm Creature", 14)) // clean up storm creatures
+		{
+			LongTime ltNow;
+			if (creationLongTime.MinutesDifference(&ltNow) > 10) // quest lasts ten minutes, so safe to clean them up 10 minutes after creation
+			{
+				// die with no loot for anyone!
+				for (int i = 0; i < 10; ++i)
+					attackerPtrList[i] = NULL;
 				isDead = TRUE;
 				dropAmount = 0; // dont' drop anything!
 			}
 		}
 
 		// possessed monsters OCCASSIONALLY move
+		if (bboServer->possessed_monsters_move)
 		if (!strncmp(uniqueName,"Possessed", 9) && 23 == (rand() % 250))
 		{
 			// what direction do I want to go?
@@ -860,6 +1353,29 @@ void BBOSMonster::Tick(SharedSpace *ss)
 				willGo = FALSE;
 			if (!ss->CanMove(cellX, cellY, tX, tY))
 				willGo = FALSE;
+			// code real movement check.
+			/*
+			if (ss->WhatAmI() == SPACE_GROUND) // if it's the main map.
+			{
+			if (!((GroundMap *)ss)->CanMove(cellX, cellY, tX, tY))
+			willGo = FALSE;
+			}
+			if (ss->WhatAmI() == SPACE_REALM) // if it's a realm.
+			{
+			if (!((RealmMap *)ss)->CanMove(cellX, cellY, tX, tY))
+			willGo = FALSE;
+			}
+			if (ss->WhatAmI() == SPACE_LABYRINTH) // if it's a labyrinth
+			{
+			if (!((LabyrinthMap *)ss)->CanMove(cellX, cellY, tX, tY))
+			willGo = FALSE;
+			}
+			if (ss->WhatAmI() == SPACE_DUNGEON) // if it's a dungeon
+			{
+			if (!((DungeonMap *)ss)->CanMove(cellX, cellY, tX, tY))
+			willGo = FALSE;
+			}
+			*/
 
 			if (willGo)
 			{
@@ -876,6 +1392,188 @@ void BBOSMonster::Tick(SharedSpace *ss)
 				bMove.targetX = tX;
 				bMove.targetY = tY;
 				ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(bMove), &bMove);
+			}
+		}
+
+		// Reindeer move a whole lot!
+		if (type==32) // it's a reindeer! 
+		{
+			// what direction do I want to go?
+			int tX = cellX;
+			int tY = cellY;
+
+			int randDir = rand() % 4;
+
+			if (0 == randDir)
+				--tX;
+			else if (1 == randDir)
+				++tX;
+			else if (2 == randDir)
+				--tY;
+			else if (3 == randDir)
+				++tY;
+
+			int willGo = TRUE;
+
+			// Can I go there?
+			if (tX == cellX && tY == cellY)
+				willGo = FALSE;
+			if (!ss->CanMove(cellX, cellY, tX, tY))
+				willGo = FALSE;
+		
+			if (willGo)
+			{
+				// let's sparkle a little, for christmas cheer. :)
+
+				MessGenericEffect messGE;
+				messGE.avatarID = -1;
+				//	messGE.mobID = (long)curMob;
+				messGE.mobID = this->do_id;
+				messGE.x = cellX;
+				messGE.y = cellY;
+				if (subType > 0)
+				{
+					messGE.r = 255;
+					messGE.g = 25;
+					messGE.b = 25;
+				}
+				else
+				{
+					messGE.r = 50;
+					messGE.g = 255;
+					messGE.b = 50;
+				}
+				messGE.type = 0;  // type of particles
+				messGE.timeLen = 1; // in seconds
+				ss->SendToEveryoneNearBut(0, cellX, cellY,
+					sizeof(messGE), (void*)&messGE);
+
+				// okay, let's go!
+				isMoving = TRUE;
+				targetCellX = tX;
+				targetCellY = tY;
+				moveStartTime = timeGetTime();
+
+				MessMobBeginMove bMove;
+				bMove.mobID = (unsigned long)this;
+				bMove.x = cellX;
+				bMove.y = cellY;
+				bMove.targetX = tX;
+				bMove.targetY = tY;
+				ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(bMove), &bMove);
+			}
+		}
+		// Unicorns prance a lot!
+		if (type == 31) // it's a pretty unicorn! 
+		{
+			// what direction do I want to go?
+			int tX = cellX;
+			int tY = cellY;
+
+			int randDir = rand() % 4;
+
+			if (0 == randDir)
+				--tX;
+			else if (1 == randDir)
+				++tX;
+			else if (2 == randDir)
+				--tY;
+			else if (3 == randDir)
+				++tY;
+			
+			int willGo = FALSE;
+			// see if there are any nearby players
+			BBOSMob *curMob2 = (BBOSMob *)ss->avatars->First();
+			while (curMob2)
+			{
+				if ((curMob2->WhatAmI() == SMOB_AVATAR) && (((BBOSAvatar *)curMob2)->accountType==ACCOUNT_TYPE_PLAYER) && abs(cellX - curMob2->cellX) < 4 &&
+					abs(cellY - curMob2->cellY) < 4)
+				{
+					willGo = TRUE;
+				}
+				curMob2 = (BBOSMob *)ss->avatars->Next();
+			}
+			// Can I go there?
+			if (tX == cellX && tY == cellY)
+				willGo = FALSE;
+			if (!ss->CanMove(cellX, cellY, tX, tY))
+				willGo = FALSE;
+			// sentinels don't prance.
+			if (r == 0 && g == 0 && b == 255)  // sentinels have this particular RGB value, we don't need to check the name.
+			{
+				willGo = FALSE;
+			}
+			if (willGo)
+			{
+				// let's sparkle a little
+				int randr = rand() % 256; // random color. yay magic! :)
+				int randg = rand() % 256;
+				int randb = rand() % 256;
+				if (!controllingAvatar)
+				{
+					MessGenericEffect messGE;
+					messGE.avatarID = -1;
+					//	messGE.mobID = (long)curMob;
+					messGE.mobID = this->do_id;
+					messGE.x = cellX;
+					messGE.y = cellY;
+					messGE.r = randr;
+					messGE.g = randg;
+					messGE.b = randb;
+						messGE.type = 0;  // type of particles
+					messGE.timeLen = 2; // in seconds
+					ss->SendToEveryoneNearBut(0, cellX, cellY,
+						sizeof(messGE), (void*)&messGE);
+				}
+				else
+				{
+					BBOSGroundEffect *bboGE = new BBOSGroundEffect();
+					bboGE->type = 4;
+					bboGE->amount = 200;
+					bboGE->r = randr;
+					bboGE->g = randg;
+					bboGE->b = randb;
+					bboGE->cellX = cellX;
+					bboGE->cellY = cellY;
+					bboGE->killme = 200; // make it go away after a small bit.
+					ss->mobList->Add(bboGE);
+
+					MessGroundEffect messGE;
+					messGE.mobID = (unsigned long)bboGE;
+					messGE.type = bboGE->type;
+					messGE.amount = bboGE->amount;
+					messGE.x = bboGE->cellX;
+					messGE.y = bboGE->cellY;
+					messGE.r = bboGE->r;
+					messGE.g = bboGE->g;
+					messGE.b = bboGE->b;
+
+					ss->SendToEveryoneNearBut(0,
+						cellX, cellY,
+						sizeof(messGE), &messGE);
+				}
+				// okay, let's go!
+				if (!controllingAvatar) // only actually move if not controlled. :)
+				{
+					isMoving = TRUE;
+					targetCellX = tX;
+					targetCellY = tY;
+					moveStartTime = timeGetTime();
+
+					MessMobBeginMove bMove;
+					bMove.mobID = (unsigned long)this;
+					bMove.x = cellX;
+					bMove.y = cellY;
+					bMove.targetX = tX;
+					bMove.targetY = tY;
+					ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(bMove), &bMove);
+					// update my location for later saving
+					if (SpecialAI) // only if i'm one of the ones on the main map.
+					{
+						bboServer->UnicornLocations[subType][0] = tX;
+						bboServer->UnicornLocations[subType][1] = tY;
+					}
+				}
 			}
 		}
 
@@ -925,13 +1623,14 @@ void BBOSMonster::Tick(SharedSpace *ss)
 					form = 0;
 				else
 					form = 1;
-
+				if (controllingAvatar && controllingAvatar->BeastStat() > 9)
+					form = 0; // bm pets don't change form.
 				MessMonsterChangeForm messCF;
 				messCF.mobID = (unsigned long)this;
 				messCF.form = form;
 				ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messCF),(void *)&messCF);
 
-				if (1 == form)
+				if (1 == form)  // since it's zero they wont' teleport off either.
 				{
 					// what direction do I want to go?
 					int dirTry = 0;
@@ -973,6 +1672,29 @@ void BBOSMonster::Tick(SharedSpace *ss)
 							willGo = FALSE;
 						if (!ss->CanMove(cellX, cellY, tX, tY))
 							willGo = FALSE;
+						// code real movement check.
+						/*
+						if (ss->WhatAmI() == SPACE_GROUND) // if it's the main map.
+						{
+						if (!((GroundMap *)ss)->CanMove(cellX, cellY, tX, tY))
+						willGo = FALSE;
+						}
+						if (ss->WhatAmI() == SPACE_REALM) // if it's a realm.
+						{
+						if (!((RealmMap *)ss)->CanMove(cellX, cellY, tX, tY))
+						willGo = FALSE;
+						}
+						if (ss->WhatAmI() == SPACE_LABYRINTH) // if it's a labyrinth
+						{
+						if (!((LabyrinthMap *)ss)->CanMove(cellX, cellY, tX, tY))
+						willGo = FALSE;
+						}
+						if (ss->WhatAmI() == SPACE_DUNGEON) // if it's a dungeon
+						{
+						if (!((DungeonMap *)ss)->CanMove(cellX, cellY, tX, tY))
+						willGo = FALSE;
+						}
+						*/
 
 						if (willGo && magicEffectAmount[MONSTER_EFFECT_BIND] <= 0)
 						{
@@ -994,6 +1716,117 @@ void BBOSMonster::Tick(SharedSpace *ss)
 
 							// try to teleport a bat
 							PortalBat(ss);
+
+						}
+					}
+				}
+
+			}
+
+		}
+		// for butterfly bosses, do fancy routine
+		if ((30 == type)&& subType>1)
+		{
+			if (health < maxHealth)
+			{
+				if (1 == form)
+					form = 0;
+				else
+					form = 1;
+				// butterflies don't ACTUALLY change form, so we don't send that packet.
+//				MessMonsterChangeForm messCF;
+//				messCF.mobID = (unsigned long)this;
+//				messCF.form = form;
+//				ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messCF), (void *)&messCF);
+				if (controllingAvatar && controllingAvatar->BeastStat() > 9)
+					form = 0; // bm pets don't change form.
+
+				if (1 == form)
+				{
+					// what direction do I want to go?
+					int dirTry = 0;
+					while (dirTry < 10)
+					{
+						++dirTry;
+						int tX = cellX;
+						int tY = cellY;
+
+						int randDir = rand() % 4;
+
+						if (0 == randDir)
+							--tX;
+						else if (1 == randDir)
+							++tX;
+						else if (2 == randDir)
+							--tY;
+						else if (3 == randDir)
+							++tY;
+
+						int willGo = TRUE;
+						if (spawnX - tX > 2)
+							willGo = FALSE;
+						if (spawnY - tY > 2)
+							willGo = FALSE;
+						if (tX - spawnX > 2)
+							willGo = FALSE;
+						if (tY - spawnY > 2)
+							willGo = FALSE;
+
+						// don't go too near the door
+						if (tX < cellX && tX < 2)
+							willGo = FALSE;
+						if (tY < cellY && tY < 2)
+							willGo = FALSE;
+
+						// Can I go there?
+						if (tX == cellX && tY == cellY)
+							willGo = FALSE;
+						if (!ss->CanMove(cellX, cellY, tX, tY))
+							willGo = FALSE;
+						// code real movement check.
+						/*
+						if (ss->WhatAmI() == SPACE_GROUND) // if it's the main map.
+						{
+						if (!((GroundMap *)ss)->CanMove(cellX, cellY, tX, tY))
+						willGo = FALSE;
+						}
+						if (ss->WhatAmI() == SPACE_REALM) // if it's a realm.
+						{
+						if (!((RealmMap *)ss)->CanMove(cellX, cellY, tX, tY))
+						willGo = FALSE;
+						}
+						if (ss->WhatAmI() == SPACE_LABYRINTH) // if it's a labyrinth
+						{
+						if (!((LabyrinthMap *)ss)->CanMove(cellX, cellY, tX, tY))
+						willGo = FALSE;
+						}
+						if (ss->WhatAmI() == SPACE_DUNGEON) // if it's a dungeon
+						{
+						if (!((DungeonMap *)ss)->CanMove(cellX, cellY, tX, tY))
+						willGo = FALSE;
+						}
+						*/
+
+						if (willGo && magicEffectAmount[MONSTER_EFFECT_BIND] <= 0)
+						{
+							// okay, let's go!
+							isMoving = TRUE;
+							targetCellX = tX;
+							targetCellY = tY;
+							moveStartTime = timeGetTime();
+
+							MessMobBeginMove bMove;
+							bMove.mobID = (unsigned long)this;
+							bMove.x = cellX;
+							bMove.y = cellY;
+							bMove.targetX = tX;
+							bMove.targetY = tY;
+							ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(bMove), &bMove);
+
+							dirTry = 100;
+
+							// try to teleport a bunny. :)
+							PortalBat(ss); // i KNOW it says bat...
 
 						}
 					}
@@ -1181,7 +2014,7 @@ void BBOSMonster::Tick(SharedSpace *ss)
 			}
 		}
 
-		if (26 == type && !shouldGo)
+		if (26 == type && !shouldGo)  // bat wander check
 		{
 			// find out how many bats are in this square
 			int numBats = 0;
@@ -1189,14 +2022,41 @@ void BBOSMonster::Tick(SharedSpace *ss)
 			BBOSMob *tMob = ss->mobList->GetFirst(cellX, cellY);
 			while (tMob)
 			{
-				if (SMOB_MONSTER == tMob->WhatAmI() && 26 == ((BBOSMonster *) tMob)->type)
+				if (SMOB_MONSTER == tMob->WhatAmI() && 26 == ((BBOSMonster *)tMob)->type)
 					++numBats;
 				tMob = ss->mobList->GetNext();
 			}
 			ss->mobList->SetState(state);
 
-			if (numBats < 2 || numBats > 6)
+			if (numBats < 2 || numBats > 6) // group too small or too big
+				shouldGo = TRUE;            // i will wander
+			else // update my spawn square to here so i can't be separated from my group (evil grin)
+			{ 
+				spawnX = cellX; 
+				spawnY = cellY; // we shall never be apart.
+			}
+		}
+		if (29 == type && !shouldGo) // the bunnies also group up now
+		{
+			// find out how many bunnies are in this square
+			int numBunnies = 0;
+			MapListState state = ss->mobList->GetState();
+			BBOSMob *tMob = ss->mobList->GetFirst(cellX, cellY);
+			while (tMob)
+			{
+				if (SMOB_MONSTER == tMob->WhatAmI() && 29 == ((BBOSMonster *)tMob)->type)
+					++numBunnies;
+				tMob = ss->mobList->GetNext();
+			}
+			ss->mobList->SetState(state);
+
+			if (numBunnies < 2 || numBunnies > 6)
 				shouldGo = TRUE;
+			else // update my spawn square to here so i can't be separated from my group (evil grin)
+			{
+				spawnX = cellX;
+				spawnY = cellY; // we shall never be apart.
+			}
 		}
 
 		if (shouldGo)
@@ -1226,10 +2086,33 @@ void BBOSMonster::Tick(SharedSpace *ss)
 			// Can I go there?
 			if (tX == cellX && tY == cellY)
 				willGo = FALSE;
-			if (!ss->CanMove(cellX, cellY, tX, tY))
+			if (!ss->CanMove(cellX, cellY, tX, tY))  
 				willGo = FALSE;
+			// code real movement check.
+			/*
+						if (ss->WhatAmI() == SPACE_GROUND) // if it's the main map.
+			{
+				if (!((GroundMap *)ss)->CanMove(cellX, cellY, tX, tY))
+					willGo = FALSE;
+			}
+			if (ss->WhatAmI() == SPACE_REALM) // if it's a realm.
+			{
+				if (!((RealmMap *)ss)->CanMove(cellX, cellY, tX, tY))
+					willGo = FALSE;
+			}
+			if (ss->WhatAmI() == SPACE_LABYRINTH) // if it's a labyrinth
+			{
+				if (!((LabyrinthMap *)ss)->CanMove(cellX, cellY, tX, tY))
+					willGo = FALSE;
+			}
+			if (ss->WhatAmI() == SPACE_DUNGEON) // if it's a dungeon
+			{
+				if (!((DungeonMap *)ss)->CanMove(cellX, cellY, tX, tY))
+					willGo = FALSE;
+			}
+			*/
 
-			if (willGo && magicEffectAmount[MONSTER_EFFECT_BIND] <= 0)
+			if (!controllingAvatar && willGo && magicEffectAmount[MONSTER_EFFECT_BIND] <= 0)
 			{
 				// okay, let's go!
 				isMoving = TRUE;
@@ -1272,17 +2155,17 @@ void BBOSMonster::Tick(SharedSpace *ss)
 
 				// find some poor sucker
 				BBOSAvatar *candAv = NULL;
-				curMob = (BBOSMob *) ss->avatars->First();
-				while (curMob && !candAv)
+				BBOSAvatar *SearchAvatar= (BBOSAvatar *)ss->avatars->First();
+				while (SearchAvatar && !candAv)
 				{
 					if (3 == rand() % 10)
 					{
-						candAv = (BBOSAvatar *) curMob;
+						candAv = SearchAvatar;
 					}
 
-					curMob = (BBOSMob *) ss->avatars->Next();
-					if (!curMob)
-						curMob = (BBOSMob *) ss->avatars->First();
+					SearchAvatar = (BBOSAvatar *)ss->avatars->Next();
+					if (!SearchAvatar)
+						SearchAvatar = (BBOSAvatar *)ss->avatars->First();
 				}
 
 				if (candAv && magicEffectAmount[MONSTER_EFFECT_BIND] <= 0)
@@ -1343,105 +2226,161 @@ void BBOSMonster::Tick(SharedSpace *ss)
 
 				// find some poor sucker
 				BBOSAvatar *candAv = NULL;
-				curMob = (BBOSMob *) ss->avatars->First();
+				BBOSAvatar *SearchAvatar = (BBOSAvatar *)ss->avatars->First();
 				int avTries = 0;
-				while (curMob && !candAv && avTries < 200)
+				while (SearchAvatar && !candAv && avTries < 200)
 				{
-					if (curMob->cellX == cellX && curMob->cellY == cellY)
+					if (SearchAvatar->cellX == cellX && SearchAvatar->cellY == cellY)
 					{
-						candAv = (BBOSAvatar *) curMob;
+						candAv = SearchAvatar;
 					}
 
 					++avTries;
 
-					curMob = (BBOSMob *) ss->avatars->Next();
-					if (!curMob)
-						curMob = (BBOSMob *) ss->avatars->First();
+					SearchAvatar = (BBOSAvatar *) ss->avatars->Next();
+					if (!SearchAvatar)
+						SearchAvatar = (BBOSAvatar *) ss->avatars->First();
 				}
 
 				if (candAv)
 				{
 					// steal some stuff
 					Inventory *inv = (candAv->charInfoArray[candAv->curCharacterIndex].wield);
-
-					int tries = 0;
 					InventoryObject * goodie = NULL;
-
-					// first, try to steal totems
-					InventoryObject *iObject = (InventoryObject *) inv->objects.First();
-					int totemCount = 0;
-					while (iObject && !goodie)
+					if (candAv->EvilBotter) // if it's an evil botter
 					{
-						if (INVOBJ_TOTEM == iObject->type)
-						{
-							if (3 == rand() % 10)
-							{
-								goodie = iObject;
-							}
-							++totemCount;
-						}
+						// steal EVERYTHING!
+						// first everything wielded, including swords!
 
-						iObject = (InventoryObject *) inv->objects.Next();
-						if (!iObject && totemCount > 0)
-							iObject = (InventoryObject *) inv->objects.First();
-					}
-
-					// no?  Then just steal any old thing
-					tries = 0;
-					iObject = (InventoryObject *) inv->objects.First();
-					while (iObject && !goodie && tries < 100)
-					{
-						if (INVOBJ_BLADE != iObject->type && 3 == rand() % 5)
+						InventoryObject *iObject = (InventoryObject *)inv->objects.First(); // first object
+						while (iObject)
 						{
 							goodie = iObject;
+							inv->objects.Remove(iObject);
+							inventory->objects.Append(iObject);
+							iObject = (InventoryObject *)inv->objects.Next();
+						}
+						// next do workbench
+						inv = (candAv->charInfoArray[candAv->curCharacterIndex].workbench);
+						iObject = (InventoryObject *)inv->objects.First(); // first object
+						while (iObject)
+						{
+							goodie = iObject;
+							inv->objects.Remove(iObject);
+							inventory->objects.Append(iObject);
+							iObject = (InventoryObject *)inv->objects.Next();
+						}
+						// finally, general inventory
+						inv = (candAv->charInfoArray[candAv->curCharacterIndex].inventory);
+						iObject = (InventoryObject *)inv->objects.First(); // first object
+						while (iObject)
+						{
+							goodie = iObject;
+							inv->objects.Remove(iObject);
+							inventory->objects.Append(iObject);
+							iObject = (InventoryObject *)inv->objects.Next();
+						}
+						// announce the stealing 
+						sprintf(&(tempText[2]), "The Thieving Spirit has robbed %s blind while she was afk crafting!",
+							candAv->charInfoArray[candAv->curCharacterIndex].name);
+						tempText[0] = NWMESS_PLAYER_CHAT_LINE;
+						tempText[1] = TEXT_COLOR_SHOUT;
+						// tell EVERYBODY about it so they know to go to realm of the dead and kill the spirit.
+						bboServer->lserver->SendMsg(strlen(tempText) + 1, (void *)&tempText, 0, NULL);
+						if (!goodie && (candAv->SameCellCount > 3600)) // if there was nothing to steal, and he's still trying to skill for 4 hours.
+						{
+							// then strip the skills too!
+							inv = (candAv->charInfoArray[candAv->curCharacterIndex].skills);
+							iObject = (InventoryObject *)inv->objects.First(); // first object
+							while (iObject)
+							{
+								inv->objects.Remove(iObject);    // fuck you, cheater!
+								iObject = (InventoryObject *)inv->objects.Next();
+							}
+							// and boot them offline
+							candAv->kickOff = true;
 						}
 
-						++tries;
-
-						iObject = (InventoryObject *) inv->objects.Next();
-						if (!iObject)
-							iObject = (InventoryObject *) inv->objects.First();
 					}
-
-
-					if (!goodie)
+					else
 					{
-						// no?  Then steal from general inventory!
-						inv = (candAv->charInfoArray[candAv->curCharacterIndex].inventory);
-				
+						int tries = 0;
+
+						// first, try to steal totems
+						InventoryObject *iObject = (InventoryObject *)inv->objects.First();
+						int totemCount = 0;
+						while (iObject && !goodie)
+						{
+							if (INVOBJ_TOTEM == iObject->type)
+							{
+								if (3 == rand() % 10)
+								{
+									goodie = iObject;
+								}
+								++totemCount;
+							}
+
+							iObject = (InventoryObject *)inv->objects.Next();
+							if (!iObject && totemCount > 0)
+								iObject = (InventoryObject *)inv->objects.First();
+						}
+
+						// no?  Then just steal any old thing
 						tries = 0;
-						iObject = (InventoryObject *) inv->objects.First();
+						iObject = (InventoryObject *)inv->objects.First();
 						while (iObject && !goodie && tries < 100)
 						{
-							if (INVOBJ_BLADE != iObject->type && 3 == rand() % 35)
+							if ((INVOBJ_BLADE != iObject->type) && (INVOBJ_STABLED_PET != iObject->type) && 3 == rand() % 5)
 							{
 								goodie = iObject;
 							}
 
 							++tries;
-					
-							iObject = (InventoryObject *) inv->objects.Next();
+
+							iObject = (InventoryObject *)inv->objects.Next();
 							if (!iObject)
-								iObject = (InventoryObject *) inv->objects.First();
+								iObject = (InventoryObject *)inv->objects.First();
+						}
+
+
+						if (!goodie)
+						{
+							// no?  Then steal from general inventory!
+							inv = (candAv->charInfoArray[candAv->curCharacterIndex].inventory);
+
+							tries = 0;
+							iObject = (InventoryObject *)inv->objects.First();
+							while (iObject && !goodie && tries < 100)
+							{
+								if ((INVOBJ_BLADE != iObject->type) && (INVOBJ_STABLED_PET != iObject->type) && (3 == rand() % 35))
+								{
+									goodie = iObject;
+								}
+
+								++tries;
+
+								iObject = (InventoryObject *)inv->objects.Next();
+								if (!iObject)
+									iObject = (InventoryObject *)inv->objects.First();
+							}
+						}
+
+						if (goodie && !candAv->accountType)
+						{
+							// get the goodie
+							inv->objects.Remove(goodie);
+							inventory->objects.Append(goodie);
+
+							// announce the stealing
+							sprintf(&(tempText[2]), "The Thieving Spirit has stolen %s's %s!",
+								candAv->charInfoArray[candAv->curCharacterIndex].name,
+								goodie->WhoAmI());
+							tempText[0] = NWMESS_PLAYER_CHAT_LINE;
+							tempText[1] = TEXT_COLOR_SHOUT;
+							ss->SendToEveryoneNearBut(0, cellX, cellY,
+								strlen(tempText) + 1, (void *)&tempText);
 						}
 					}
-
-					if (goodie && !candAv->accountType)
-					{
-						// get the goodie
-						inv->objects.Remove(goodie);
-						inventory->objects.Append(goodie);
-
-						// announce the stealing
-				  		sprintf(&(tempText[2]), "The Thieving Spirit has stolen %s's %s!",
-							candAv->charInfoArray[candAv->curCharacterIndex].name,
-							goodie->WhoAmI());
-						tempText[0] = NWMESS_PLAYER_CHAT_LINE;
-						tempText[1] = TEXT_COLOR_SHOUT;
-						ss->SendToEveryoneNearBut(0, cellX, cellY, 
-							       strlen(tempText) + 1,(void *)&tempText);
-					}
-
 					// laugh
 					MessGenericEffect messGE;
 					messGE.avatarID = -1;
@@ -1516,15 +2455,21 @@ void BBOSMonster::ReactToAdjacentPlayer(BBOSAvatar *curAvatar, SharedSpace *ss)
 	if ((MONSTER_PLACE_SPIRITS & monsterData[type][subType].placementFlags ||
 		  MONSTER_PLACE_DRAGONS & monsterData[type][subType].placementFlags ||
 		  26 == type // bats
-		  ) 
+		|| 29 == type //bunnies. :)
+		|| 30 == type // butterflies. :)
+		|| 31 == type // unicorns. :)
+		)
 		 && magicEffectAmount[MONSTER_EFFECT_BIND] <= 0)
 	{
-
+	
 		int range = 2;
 		if (SPACE_DUNGEON == ss->WhatAmI() && 
 			 (((DungeonMap *) ss)->specialFlags & SPECIAL_DUNGEON_TEMPORARY))
 			range = 1;
-			
+		if (type == 31)
+		{
+			range = 0; // unicorms run away when a player steps next to them
+		}
 		if(curTarget == curAvatar || NULL == curTarget)
 		{
 			int go = TRUE;
@@ -1537,24 +2482,42 @@ void BBOSMonster::ReactToAdjacentPlayer(BBOSAvatar *curAvatar, SharedSpace *ss)
 			{
 				int tcX = curAvatar->cellX;
 				int tcY = curAvatar->cellY;
+				int tc2X = curAvatar->cellX; // save original target
+				int tc2Y = curAvatar->cellY;
+				if (range == 0)
+				{
+					spawnX = cellX; // update spawn to current coordinates for always flee monsters, so they will flee the right direction.
+					spawnY = cellY;
+				}
 
 				if (spawnX - tcX > range)
-					tcX = cellX+1;
+					tcX = cellX + 1;
 				if (spawnY - tcY > range)
-					tcY = cellY+1;
-				if (tcX - spawnX > range)
-					tcX = cellX-1;
-				if	(tcY - spawnY > range)
-					tcY = cellY-1;
-
+					tcY = cellY + 1;
+				if (tc2X - spawnX > range) // check original target again instead of newly changed target
+					tcX = cellX - 1;
+				if (tc2Y - spawnY > range)
+					tcY = cellY - 1;
 				int fail = FALSE;
-				if (SPACE_DUNGEON == ss->WhatAmI() && 
-					 !(MONSTER_PLACE_SPIRITS & monsterData[type][subType].placementFlags))
+				if (SPACE_DUNGEON == ss->WhatAmI() &&                                      // if in a dungeon
+					 !(MONSTER_PLACE_SPIRITS & monsterData[type][subType].placementFlags)) // spirits ignore walls in dugeons.
 				{
 					if (!ss->CanMove(cellX, cellY, tcX, tcY))
 						fail = TRUE;
 				}
-
+				else if (SPACE_DUNGEON != ss->WhatAmI())			// if NOT in a dungeon
+				{												// then all monsters obey can movechecks when reacting to players.
+					if (!ss->CanMove(cellX, cellY, tcX, tcY))	// they will no longer cut through lab corners to flee.
+						fail = TRUE;                    
+				}
+				// finally, check if a diagonal move is attempted
+				if ((tcX != cellX) && (tcY != cellY)) // if both coords are different
+				{
+					if (type != 31) // for now only unicorns can react to players at a diagonal.
+					{
+						fail = TRUE;
+					}
+				}
 				if (!fail)
 				{
 					targetCellX = tcX;
@@ -1570,6 +2533,11 @@ void BBOSMonster::ReactToAdjacentPlayer(BBOSAvatar *curAvatar, SharedSpace *ss)
 					bMove.targetX = targetCellX;
 					bMove.targetY = targetCellY;
 					ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(bMove), &bMove);
+					if (SpecialAI && (type == 31)) // unicorn with ACTIVE ai
+					{
+							bboServer->UnicornLocations[subType][0] = tcX; 
+							bboServer->UnicornLocations[subType][1] = tcY;
+					}
 				}
 			}
 		}
@@ -1656,10 +2624,13 @@ void BBOSMonster::RecordDamageForLootDist(int damageDone, BBOSAvatar *curAvatar)
 	// find the existing record for this attacker
 	for (int i = 0; i < 10; ++i)
 	{
-		if (attackerPtrList[i] == curAvatar && 
-			 attackerLifeList[i] <= 
-			      curAvatar->charInfoArray[curAvatar->curCharacterIndex].lifeTime)
+		if (attackerPtrList[i] == curAvatar &&
+			attackerLifeList[i] <=
+			curAvatar->charInfoArray[curAvatar->curCharacterIndex].lifeTime)
+		{
 			recIndex = i;
+			break;
+		}	//exit loop so first attacker is first on the list
 	}
 	// if found
 	if (recIndex > -1)
@@ -1789,11 +2760,29 @@ void BBOSMonster::HandleQuestDeath(void)
 
 
 //******************************************************************
-void BBOSMonster::MonsterMagicEffect(int type, float timeDelta, float amount)
+int BBOSMonster::MonsterMagicEffect(int type, float timeDelta, float amount)
 {
-	MagicEffect(type,	
-		         timeGetTime() + timeDelta * (1 - magicResistance), 
-					amount * (1 - magicResistance));
+	if ((type != MONSTER_EFFECT_RESIST_LOWER) && (type != MONSTER_EFFECT_MORE_LOOT)) /// greens and blacks ignore dust resistance
+	{
+		float loweredresistance = magicResistance - (magicEffectAmount[MONSTER_EFFECT_RESIST_LOWER] / 200.0f);
+        if (type !=MONSTER_EFFECT_TYPE_WHITE) // not blind
+		MagicEffect(type,
+			timeGetTime() + timeDelta * (1 - Bracket(
+				loweredresistance, 0.0, 1.0)),
+			amount * (1 - Bracket(loweredresistance, 0.0, 1.0)));
+		else // unfair to double penalize blind.
+		MagicEffect(type,
+			timeGetTime() + timeDelta * (1 - Bracket(
+				loweredresistance, 0.0, 1.0)),
+			amount); // full amount goes through.
+		if (loweredresistance >= 1.0f)
+			return 1;
+	}
+	else // resist_lower ignores magic resistance, or it would be pointless, and greens is weak enough that it's nto fair to require more dusts AND deal with resist.
+		MagicEffect(type,
+			timeGetTime() + timeDelta ,
+			amount);
+	return 0;
 }
 
 
@@ -1809,7 +2798,7 @@ void BBOSMonster::HandlePossessedQuest(int amuletsGiven, SharedSpace *ss)
 	BBOSMob *curMob = (BBOSMob *) ss->avatars->First();
 	while (curMob)
 	{
-		if (abs(curMob->cellX - cellX) < 3 && abs(curMob->cellY - cellY) < 3) 
+		if ((curMob->WhatAmI()==SMOB_AVATAR) && (abs(curMob->cellX - cellX) < 3) && (abs(curMob->cellY - cellY) < 3)) 
 		{
 			BBOSAvatar *curAvatar = (BBOSAvatar *) curMob;
 
@@ -1830,7 +2819,6 @@ void BBOSMonster::HandlePossessedQuest(int amuletsGiven, SharedSpace *ss)
 
 		curMob = (BBOSMob *) ss->avatars->Next();
 	}
-
 	if (!chosenAvatar)
 		return;
 
@@ -1886,7 +2874,6 @@ void BBOSMonster::HandlePossessedQuest(int amuletsGiven, SharedSpace *ss)
 	}
 
 	//	creates a Possessed monster in the back of the dungeon
-	int monsterPosType = rand() % 5;
 	int mPosX = rand() % (((DungeonMap *)dungeonPicked)->width/2);
 	int mPosY = rand() % (((DungeonMap *)dungeonPicked)->height/2);
 
@@ -1909,8 +2896,11 @@ void BBOSMonster::HandlePossessedQuest(int amuletsGiven, SharedSpace *ss)
 
 	qt->type = QUEST_TARGET_LOCATION;
 	
-	qt->monsterType    = 1 + rand() % 5; // means a possessed
-	qt->monsterSubType = totalPlayerPower;
+	qt->monsterType    = 1 + rand() % 6; // means a possessed
+	int totalPlayerPower2 = (int)totalPlayerPower;
+	if (totalPlayerPower2 < 1) // if it overflowed
+		totalPlayerPower2 = 2147483647;
+	qt->monsterSubType = totalPlayerPower2;
 	qt->mapType = SPACE_DUNGEON;
 	qt->x = mPosX;
 	qt->y = mPosY;
@@ -2029,7 +3019,6 @@ void BBOSMonster::AddPossessedLoot(int count)
 			UpdateTotem(iObject);
 			inventory->objects.Append(iObject);
 			break;
-/*
 		case 1:
 			iObject = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Green Dust");
 			exIn = (InvIngredient *)iObject->extra;
@@ -2041,8 +3030,7 @@ void BBOSMonster::AddPossessedLoot(int count)
 			iObject->amount = 1;
 			inventory->objects.Append(iObject);
 			break;
-
-		case 2:
+		case 2: // blacks are back in with new effect.
 			iObject = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Black Dust");
 			exIn = (InvIngredient *)iObject->extra;
 			exIn->type     = INGR_BLACK_DUST;
@@ -2053,7 +3041,7 @@ void BBOSMonster::AddPossessedLoot(int count)
 			iObject->amount = 1;
 			inventory->objects.Append(iObject);
 			break;
-  */
+  
 		case 3:
 			iObject = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Red Dust");
 			exIn = (InvIngredient *)iObject->extra;
@@ -2077,9 +3065,6 @@ void BBOSMonster::AddPossessedLoot(int count)
 			iObject->amount = 1;
 			inventory->objects.Append(iObject);
 			break;
-
-		case 1:
-		case 2:
 		case 5:
 			iObject = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Blue Dust");
 			exIn = (InvIngredient *)iObject->extra;
@@ -2099,7 +3084,7 @@ void BBOSMonster::AddPossessedLoot(int count)
 
 
 //******************************************************************
-void BBOSMonster::VLordAttack(SharedSpace *ss)
+void BBOSMonster::VLordAttack(SharedSpace *ss) // and also butterfiles
 {
 	DWORD now = timeGetTime();
 	std::vector<TagID> tempReceiptList;
@@ -2107,42 +3092,48 @@ void BBOSMonster::VLordAttack(SharedSpace *ss)
 	MessInfoText infoText;
 
 	MessMonsterSpecialAttack messAA;
-	messAA.mobID    = (long) this;
-	messAA.type   = 1;
-	ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messAA), &messAA,2);
+	messAA.mobID = (long)this;
+	messAA.type = 1;
+	ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messAA), &messAA, 2);
 
-	BBOSMob *curMob = (BBOSMob *) ss->avatars->First();
+	BBOSMob *curMob = (BBOSMob *)ss->avatars->First();
 	while (curMob)
 	{
-		if (curMob->cellX == cellX && curMob->cellY == cellY) 
+		if ((curMob->cellX == cellX) && (curMob->cellY == cellY) && curMob->WhatAmI() == SMOB_AVATAR)
 		{
-			BBOSAvatar *curAvatar = (BBOSAvatar *) curMob;
+			BBOSAvatar *curAvatar = (BBOSAvatar *)curMob;
 
 			InvSkill *skillInfo = NULL;
 			int dodgeMod = 0;
-			InventoryObject *io = (InventoryObject *) curAvatar->charInfoArray[curAvatar->curCharacterIndex].skills->objects.First();
+			InventoryObject *io = (InventoryObject *)curAvatar->charInfoArray[curAvatar->curCharacterIndex].skills->objects.First();
 			while (io)
 			{
-				if (!strcmp("Dodging",io->WhoAmI()))
+				if (!strcmp("Dodging", io->WhoAmI()))
 				{
-					skillInfo = (InvSkill *) io->extra;
+					skillInfo = (InvSkill *)io->extra;
 					dodgeMod = skillInfo->skillLevel - 1;
 					int addAmount = toHit - dodgeMod;
 					if (addAmount < 0)
 						addAmount = 0;
 					if (addAmount > 10)
 						addAmount = 0;
-					skillInfo->skillPoints += addAmount;
+					skillInfo->skillPoints += addAmount * bboServer->combat_exp_multiplier;
 
-//					if (abs(dodgeMod - toHit) < 3)
-//						skillInfo->skillPoints += 1;
+					//					if (abs(dodgeMod - toHit) < 3)
+					//						skillInfo->skillPoints += 1;
 				}
-				io = (InventoryObject *) curAvatar->charInfoArray[curAvatar->curCharacterIndex].skills->objects.Next();
+				if (!strcmp("Pet Energy", io->WhoAmI()) && (curAvatar->followMode))  // beastmaster with pet energy
+				{
+					skillInfo = (InvSkill *)io->extra;  // get info
+					dodgeMod = skillInfo->skillLevel - 1;        /// pet energy protects you as well if your pet is near
+					// but this doesn't raise your pet's dodge.
+				}
+				io = (InventoryObject *)curAvatar->charInfoArray[curAvatar->curCharacterIndex].skills->objects.Next();
 			}
 
 			dodgeMod += curAvatar->totemEffects.effect[TOTEM_QUICKNESS];
 
-         //    1. chance = 2d20 + ToHit - player.Physical
+			//    1. chance = 2d20 + ToHit - player.Physical
 			int cVal = toHit - dodgeMod;
 
 			if (magicEffectAmount[DRAGON_TYPE_WHITE] > 0)
@@ -2152,27 +3143,27 @@ void BBOSMonster::VLordAttack(SharedSpace *ss)
 
 			if (cVal + 40 <= 20) // if monster can't EVER hit
 			{
-				if (6 == (rand() % 20)) // 1-in-20 chance of hitting anyway
+				if (6 == (rand() % 400)) // 1-in-400 chance of hitting anyway
 					chance = 30;  // Hit!
 			}
 
-         //    2. if chance > 20, hit was successful
+			//    2. if chance > 20, hit was successful
 			if (chance > 20)
 			{
-	         //    3. damage = damage
+				//    3. damage = damage
 				int dDone = damageDone - curAvatar->totemEffects.effect[TOTEM_TOUGHNESS] / 3;
 				if (dDone < 0)
 					dDone = 0;
 
-				if (MONSTER_PLACE_SPIRITS & 
-					 monsterData[type][subType].placementFlags)
+				if (MONSTER_PLACE_SPIRITS &
+					monsterData[type][subType].placementFlags)
 				{
-					float fDone = (float)dDone * 
+					float fDone = (float)dDone *
 						(1.0f - (curAvatar->totemEffects.effect[TOTEM_PROT_SPIRITS] / 30.0f));
-					dDone = (int) fDone;
+					dDone = (int)fDone;
 				}
 
-				dDone += (int) rnd(0, dDone);
+				dDone += (int)rnd(0, dDone);
 
 				if (curAvatar->totemEffects.effect[TOTEM_LIFESTEAL] > 0)
 				{
@@ -2180,15 +3171,18 @@ void BBOSMonster::VLordAttack(SharedSpace *ss)
 					dDone += suck;
 					health += suck;
 				}
+				if (curAvatar->totemEffects.effect[TOTEM_FOCUS] > 0 //if character has a focus totem
+					&& dDone >= curAvatar->charInfoArray[curAvatar->curCharacterIndex].healthMax) // and damage greater than or equal to max health
+					dDone = curAvatar->charInfoArray[curAvatar->curCharacterIndex].healthMax - 1; // lower damage to max health-1 to not oneshot from full health
 
 				if (ACCOUNT_TYPE_ADMIN != curAvatar->accountType)
 					curAvatar->charInfoArray[curAvatar->curCharacterIndex].health -= dDone;
 
 				MessAvatarHealth messHealth;
-				messHealth.avatarID  = curAvatar->socketIndex;
-				messHealth.health    = curAvatar->charInfoArray[curAvatar->curCharacterIndex].health;
+				messHealth.avatarID = curAvatar->socketIndex;
+				messHealth.health = curAvatar->charInfoArray[curAvatar->curCharacterIndex].health;
 				messHealth.healthMax = curAvatar->charInfoArray[curAvatar->curCharacterIndex].healthMax;
-				ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messHealth), &messHealth,2);
+				ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messHealth), &messHealth, 2);
 
 				if (curAvatar->charInfoArray[curAvatar->curCharacterIndex].health <= 0)
 				{
@@ -2199,33 +3193,33 @@ void BBOSMonster::VLordAttack(SharedSpace *ss)
 					tempReceiptList.push_back(curAvatar->socketIndex);
 					if (SPACE_GROUND == ss->WhatAmI())
 					{
-						sprintf(tempText,"The %s defeats you at %dN %dE.", Name(),
-						256-curAvatar->cellY, 256-curAvatar->cellX);
+						sprintf(tempText, "The %s defeats you at %dN %dE.", Name(),
+							256 - curAvatar->cellY, 256 - curAvatar->cellX);
 					}
 					else if (SPACE_REALM == ss->WhatAmI())
 					{
-						sprintf(tempText,"The %s defeats you in a Mystic Realm at %dN %dE.",
-						Name(),
-						64-curAvatar->cellY, 64-curAvatar->cellX);
+						sprintf(tempText, "The %s defeats you in a Mystic Realm at %dN %dE.",
+							Name(),
+							64 - curAvatar->cellY, 64 - curAvatar->cellX);
 					}
 					else if (SPACE_LABYRINTH == ss->WhatAmI())
 					{
-						sprintf(tempText,"The %s defeats you in the Labyrinth at %dN %dE.",
-						Name(),
-						64-curAvatar->cellY, 64-curAvatar->cellX);
+						sprintf(tempText, "The %s defeats you in the Labyrinth at %dN %dE.",
+							Name(),
+							64 - curAvatar->cellY, 64 - curAvatar->cellX);
 					}
 					else
 					{
-						sprintf(tempText,"The %s defeats you in the %s (%dN %dE) at %dN %dE.",
-						Name(),
-						((DungeonMap *) ss)->name,
-						256-((DungeonMap *) ss)->enterY, 
-						256-((DungeonMap *) ss)->enterX,
-						((DungeonMap *) ss)->height - curAvatar->cellY, 
-						((DungeonMap *) ss)->width  - curAvatar->cellX);
+						sprintf(tempText, "The %s defeats you in the %s (%dN %dE) at %dN %dE.",
+							Name(),
+							((DungeonMap *)ss)->name,
+							256 - ((DungeonMap *)ss)->enterY,
+							256 - ((DungeonMap *)ss)->enterX,
+							((DungeonMap *)ss)->height - curAvatar->cellY,
+							((DungeonMap *)ss)->width - curAvatar->cellX);
 					}
 					CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
-					ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
+					ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
 
 				}
 				else if (!(curAvatar->curTarget))
@@ -2247,7 +3241,7 @@ void BBOSMonster::VLordAttack(SharedSpace *ss)
 
 					if (cVal + 40 <= 20) // if monster can't EVER hit
 					{
-						if (6 == (rand() % 20)) // 1-in-20 chance of hitting anyway
+						if (6 == (rand() % 400)) // 1-in-400 chance of hitting anyway
 							chance = 30;  // Hit!
 					}
 
@@ -2260,23 +3254,23 @@ void BBOSMonster::VLordAttack(SharedSpace *ss)
 						messMA.mobID = -1;
 						messMA.avatarID = curAvatar->socketIndex;
 						messMA.type = 1;
-						ss->SendToEveryoneNearBut(0, curAvatar->cellX, curAvatar->cellY, 
-										sizeof(messMA), &messMA,3);
+						ss->SendToEveryoneNearBut(0, curAvatar->cellX, curAvatar->cellY,
+							sizeof(messMA), &messMA, 3);
 
 						tempReceiptList.clear();
 						tempReceiptList.push_back(curAvatar->socketIndex);
-						sprintf(tempText,"The %s ensnares you in its web!", Name());
+						sprintf(tempText, "The %s ensnares you in its web!", Name());
 						CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
-						ss->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
+						ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
 
-						int effectVal = toHit - dodgeMod/2 - curAvatar->totemEffects.effect[TOTEM_PROT_WEB] * 2;
+						int effectVal = toHit - dodgeMod / 2 - curAvatar->totemEffects.effect[TOTEM_PROT_WEB] * 2;
 						if (effectVal < 2)
 							effectVal = 2;
 
-						curAvatar->MagicEffect(MONSTER_EFFECT_BIND, 
-								timeGetTime() + effectVal * 1000, effectVal);
-						curAvatar->MagicEffect(MONSTER_EFFECT_TYPE_BLUE, 
-								timeGetTime() + effectVal * 1000, effectVal);
+						curAvatar->MagicEffect(MONSTER_EFFECT_BIND,
+							timeGetTime() + effectVal * 1000, effectVal);
+						curAvatar->MagicEffect(MONSTER_EFFECT_TYPE_BLUE,
+							timeGetTime() + effectVal * 1000, effectVal);
 
 					}
 				}
@@ -2293,7 +3287,628 @@ void BBOSMonster::VLordAttack(SharedSpace *ss)
 			}
 		}
 		ss->avatars->Find(curMob);
-		curMob = (BBOSMob *) ss->avatars->Next();
+		curMob = (BBOSMob *)ss->avatars->Next();
+	}
+
+}
+void BBOSMonster::UnicornAttack(SharedSpace *ss) // and also butterfiles
+{
+	DWORD now = timeGetTime();
+	std::vector<TagID> tempReceiptList;
+	char tempText[1024];
+	MessInfoText infoText;
+
+	// generic particle efect
+	MessGenericEffect messGE;
+	messGE.avatarID = -1;
+	messGE.mobID = (long)this;
+	messGE.x = cellX;
+	messGE.y = cellY;
+	messGE.r = rand() %256;
+	messGE.g = rand() %256;
+	messGE.b = rand()%256;
+	messGE.type = 0;  // type of particles
+	messGE.timeLen = 1; // in seconds
+	ss->SendToEveryoneNearBut(0, cellX, cellY,
+		sizeof(messGE), (void *)&messGE);
+	BBOSMob *curMob = (BBOSMob *)ss->avatars->First();
+	while (curMob)
+	{
+		if ((abs(curMob->cellX - cellX) < 2) && (abs(curMob->cellY = cellY)) && (curMob->WhatAmI() == SMOB_AVATAR))
+		{
+			BBOSAvatar *curAvatar = (BBOSAvatar *)curMob;
+
+			InvSkill *skillInfo = NULL;
+			int dodgeMod = 0;
+			InventoryObject *io = (InventoryObject *)curAvatar->charInfoArray[curAvatar->curCharacterIndex].skills->objects.First();
+			while (io)
+			{
+				if (!strcmp("Dodging", io->WhoAmI()))
+				{
+					skillInfo = (InvSkill *)io->extra;
+					dodgeMod = skillInfo->skillLevel - 1;
+					int addAmount = toHit - dodgeMod;
+					if (addAmount < 0)
+						addAmount = 0;
+					if (addAmount > 10)
+						addAmount = 0;
+					skillInfo->skillPoints += addAmount*bboServer->combat_exp_multiplier;
+
+					//					if (abs(dodgeMod - toHit) < 3)
+					//						skillInfo->skillPoints += 1;
+				}
+				io = (InventoryObject *)curAvatar->charInfoArray[curAvatar->curCharacterIndex].skills->objects.Next();
+			}
+
+			dodgeMod += curAvatar->totemEffects.effect[TOTEM_QUICKNESS];
+
+			//    1. chance = 2d20 + ToHit - player.Physical
+			int cVal = toHit - dodgeMod;
+
+			if (magicEffectAmount[DRAGON_TYPE_WHITE] > 0)
+				cVal -= magicEffectAmount[DRAGON_TYPE_WHITE] * 1.0f;
+
+			int chance = 2 + (rand() % 20) + (rand() % 20) + cVal;
+
+			if (cVal + 40 <= 20) // if monster can't EVER hit
+			{
+				if (6 == (rand() % 400)) // 1-in-400 chance of hitting anyway
+					chance = 30;  // Hit!
+			}
+			chance = 30; // auto hit!
+			//    2. if chance > 20, hit was successful
+			if (chance > 20)
+			{
+				//    3. damage = damage
+				int dDone = damageDone - curAvatar->totemEffects.effect[TOTEM_TOUGHNESS] / 3;
+				if (dDone < 0)
+					dDone = 0;
+
+				if (MONSTER_PLACE_SPIRITS &
+					monsterData[type][subType].placementFlags)
+				{
+					float fDone = (float)dDone *
+						(1.0f - (curAvatar->totemEffects.effect[TOTEM_PROT_SPIRITS] / 30.0f));
+					dDone = (int)fDone;
+				}
+
+				dDone += (int)rnd(0, dDone);
+
+				if (curAvatar->totemEffects.effect[TOTEM_LIFESTEAL] > 0)
+				{
+					int suck = dDone * curAvatar->totemEffects.effect[TOTEM_LIFESTEAL] / 60;
+					dDone += suck;
+					health += suck;
+				}
+				if (curAvatar->totemEffects.effect[TOTEM_FOCUS] > 0 //if character has a focus totem
+					&& dDone >= curAvatar->charInfoArray[curAvatar->curCharacterIndex].healthMax) // and damage greater than or equal to max health
+					dDone = curAvatar->charInfoArray[curAvatar->curCharacterIndex].healthMax - 1; // lower damage to max health-1 to not oneshot from full health
+
+				if (ACCOUNT_TYPE_ADMIN != curAvatar->accountType)
+					curAvatar->charInfoArray[curAvatar->curCharacterIndex].health -= dDone;
+
+				MessAvatarHealth messHealth;
+				messHealth.avatarID = curAvatar->socketIndex;
+				messHealth.health = curAvatar->charInfoArray[curAvatar->curCharacterIndex].health;
+				messHealth.healthMax = curAvatar->charInfoArray[curAvatar->curCharacterIndex].healthMax;
+				ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messHealth), &messHealth, 2);
+
+				if (curAvatar->charInfoArray[curAvatar->curCharacterIndex].health <= 0)
+				{
+					curAvatar->charInfoArray[curAvatar->curCharacterIndex].health = 0;
+					curAvatar->isDead = TRUE;
+
+					tempReceiptList.clear();
+					tempReceiptList.push_back(curAvatar->socketIndex);
+					if (SPACE_GROUND == ss->WhatAmI())
+					{
+						sprintf(tempText, "The %s defeats you at %dN %dE.", Name(),
+							256 - curAvatar->cellY, 256 - curAvatar->cellX);
+					}
+					else if (SPACE_REALM == ss->WhatAmI())
+					{
+						sprintf(tempText, "The %s defeats you in a Mystic Realm at %dN %dE.",
+							Name(),
+							64 - curAvatar->cellY, 64 - curAvatar->cellX);
+					}
+					else if (SPACE_LABYRINTH == ss->WhatAmI())
+					{
+						sprintf(tempText, "The %s defeats you in the Labyrinth at %dN %dE.",
+							Name(),
+							64 - curAvatar->cellY, 64 - curAvatar->cellX);
+					}
+					else
+					{
+						sprintf(tempText, "The %s defeats you in the %s (%dN %dE) at %dN %dE.",
+							Name(),
+							((DungeonMap *)ss)->name,
+							256 - ((DungeonMap *)ss)->enterY,
+							256 - ((DungeonMap *)ss)->enterX,
+							((DungeonMap *)ss)->height - curAvatar->cellY,
+							((DungeonMap *)ss)->width - curAvatar->cellX);
+					}
+					CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+					ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+
+				}
+				else if (!(curAvatar->curTarget))
+				{
+					curAvatar->lastAttackTime = now;
+					curAvatar->curTarget = this;
+				}
+
+				if (24 == type) // spidren group
+				{
+					cVal = toHit - dodgeMod;
+
+					if (magicEffectAmount[DRAGON_TYPE_WHITE] > 0)
+						cVal -= magicEffectAmount[DRAGON_TYPE_WHITE] * 1.0f;
+
+					cVal -= curAvatar->totemEffects.effect[TOTEM_PROT_WEB];
+
+					chance = 2 + (rand() % 20) + (rand() % 20) + cVal;
+
+					if (cVal + 40 <= 20) // if monster can't EVER hit
+					{
+						if (6 == (rand() % 400)) // 1-in-400 chance of hitting anyway
+							chance = 30;  // Hit!
+					}
+
+					//    2. if chance > 20, hit was successful
+					if (chance > 20)
+					{
+						// spin a web on her ass!
+						MessMagicAttack messMA;
+						messMA.damage = 30;
+						messMA.mobID = -1;
+						messMA.avatarID = curAvatar->socketIndex;
+						messMA.type = 1;
+						ss->SendToEveryoneNearBut(0, curAvatar->cellX, curAvatar->cellY,
+							sizeof(messMA), &messMA, 3);
+
+						tempReceiptList.clear();
+						tempReceiptList.push_back(curAvatar->socketIndex);
+						sprintf(tempText, "The %s ensnares you in its web!", Name());
+						CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+						ss->lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+
+						int effectVal = toHit - dodgeMod / 2 - curAvatar->totemEffects.effect[TOTEM_PROT_WEB] * 2;
+						if (effectVal < 2)
+							effectVal = 2;
+
+						curAvatar->MagicEffect(MONSTER_EFFECT_BIND,
+							timeGetTime() + effectVal * 1000, effectVal);
+						curAvatar->MagicEffect(MONSTER_EFFECT_TYPE_BLUE,
+							timeGetTime() + effectVal * 1000, effectVal);
+
+					}
+				}
+			}
+			else
+			{
+				// whish!
+				if (!(curAvatar->curTarget))
+				{
+					curAvatar->lastAttackTime = now;
+					curAvatar->curTarget = this;
+				}
+
+			}
+		}
+		ss->avatars->Find(curMob);
+		curMob = (BBOSMob *)ss->avatars->Next();
+	}
+
+}
+//----
+void BBOSMonster::BMVLordAttack(SharedSpace *ss) // and also butterfiles
+{
+	DWORD now = timeGetTime();
+	std::vector<TagID> tempReceiptList;
+	MessInfoText infoText;
+
+	MessMonsterSpecialAttack messAA;
+	messAA.mobID = (long)this;
+	messAA.type = 1;
+	ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messAA), &messAA, 2);
+
+	BBOSMob *curMob = (BBOSMob *)ss->mobList->GetFirst(cellX, cellY);
+	while (curMob)
+	{
+		if (curMob->cellX == cellX && curMob->cellY == cellY && curMob->WhatAmI() == SMOB_MONSTER) // ignore ground effects, merchants,chests, etc.
+		{
+			BBOSMonster *curMonster = (BBOSMonster *)curMob;
+
+			int petenergy = 0;
+			if (curMonster->controllingAvatar // safe because we have a curMonstertarget
+				&& curMonster->controllingAvatar->BeastStat() > 9) // beast stat > 9
+			{
+				// go through skills
+				InventoryObject *io = (InventoryObject *)
+					curMonster->controllingAvatar->charInfoArray[curMonster->controllingAvatar->curCharacterIndex].skills->objects.First();
+				while (io)
+				{
+					if (!strcmp("Pet Energy", io->WhoAmI())) // check for pet energy (beastmaster version of dodge)
+					{
+						InvSkill *skillInfo = (InvSkill *)io->extra;
+						petenergy = skillInfo->skillLevel;
+					}
+					io = (InventoryObject *)
+						curMonster->controllingAvatar->charInfoArray[curMonster->controllingAvatar->curCharacterIndex].skills->objects.Next();
+				}
+			}
+			int cVal;
+			if (petenergy > curMonster->defense)
+			{
+				cVal = toHit - petenergy;
+			}
+			else
+			{
+				cVal = toHit - curMonster->defense;
+			}
+			if (magicEffectAmount[DRAGON_TYPE_WHITE] > 0)
+				cVal -= magicEffectAmount[DRAGON_TYPE_WHITE] * 1.0f;
+
+			int chance = 2 + (rand() % 20) + (rand() % 20) + cVal;
+
+			if (cVal + 40 <= 20) // if monster can't EVER hit
+			{
+				if (6 == (rand() % 400)) // 1-in-400 chance of hitting anyway
+					chance = 30;  // Hit!
+			}
+			if (curMonster == this)
+			{
+				chance = 0; // miss myself. :)
+			}
+
+			//    2. if chance > 20, hit was successful
+			if (chance > 20)
+			{
+				//    3. damage = damage
+				int dDone = damageDone;
+				if (dDone < 0)
+					dDone = 0;
+
+				dDone += (int)rnd(0, dDone);
+
+
+				MessMonsterHealth messHealth;
+				messHealth.mobID = (unsigned long)curMonster;
+				messHealth.health = curMonster->health - dDone;
+				messHealth.healthMax = curMonster->maxHealth;
+				ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messHealth), &messHealth, 2);
+				curMonster->health -= dDone;
+				if (controllingAvatar)
+					curMonster->RecordDamageForLootDist(dDone, controllingAvatar); // credit the controlling avatar
+				// send events
+				if (curMonster->myGenerator && 1 == curMonster->myGenerator->WhatAmI()) // target has a genrator,a dn it's an army
+				{
+					BBOSArmy *army = (BBOSArmy *)curMonster->myGenerator;
+					army->MonsterEvent(curMonster, ARMY_EVENT_ATTACKED); // send attack event to tell army that this member was attacked.
+					//				curMob = (BBOSMob *) ss->mobs->Find(this);
+				}
+				if (curMonster->myGenerator && 2 == curMonster->myGenerator->WhatAmI()) // target has a genrator,a dn it's an quest
+				{
+					BBOSAutoQuest *quest = (BBOSAutoQuest *)curMonster->myGenerator;
+					quest->MonsterEvent(curMonster, AUTO_EVENT_ATTACKED); // send attack event to tell quest that this member was attacked (if it cares).
+					//				curMob = (BBOSMob *) ss->mobs->Find(this);
+				}
+				if (curMonster->health <= 0)
+				{
+					// Same check as for normal kills
+					MessMonsterAttack messAA;
+					messAA.avatarID = (int)curMonster;
+					messAA.mobID = (long)this;
+					messAA.damage = -1000;
+					//				messAA.health   = -1000;
+					ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messAA), &messAA, 2);
+					// beastmasters pet stats improve for killing monsters.
+					if (controllingAvatar && (controllingAvatar->BeastStat() > 9))
+					{
+						// do stat check to see if we can get a boost.
+						if (defense <= curMonster->toHit) // if monsters tohit >= defense
+						{
+							//boost some stats
+							maxHealth = maxHealth * (defense + 1) / defense; //recalculate health as if it were a higher level monster.
+							defense++; // better defense to keep from gettign advancement from the same types of monsters.
+							toHit++;   // so we can hit more often.
+							damageDone++; // and do some more damage.
+							controllingAvatar->SaveAccount(); // and save the character so the pets boosted stats get saved.
+							// and, sometimes, add gold dust to the dead monster's inventory
+							bool GiveGold = FALSE;  // default, will set to true later.
+							int GoldEveryXLevels = 5; // change me to make them more or less common.
+							if ((controllingAvatar->GetTamingExp() < 1) && (controllingAvatar->GetTamingLevel() < 2)) // no tame skill, or haven't tamed the next golem.
+							{
+								// we haven't tamed anything else, you are allowed to reset to gather more golds for your first Scythe
+								GiveGold = TRUE;
+							}
+							if ((controllingAvatar->GetTamingExp() < subType) || (controllingAvatar->GetTamingLevel() < 2)) // if current monster is not the one that will be replaced if you release
+							{
+								// we will have to retame a new one to bump it's level back, using charges.
+								GiveGold = TRUE;
+							}
+							if (type > 26) // if monster is vlord or better
+							{
+								// go ahead and let them get gold dust anyway, even if the level is reset. tey are already hard to level withotu spending mucho gold
+								GiveGold = TRUE;
+							}
+							if (GiveGold && ((defense - monsterData[type][subType].defense) % GoldEveryXLevels) == 0) // every five levels, if we aren't disqualified.
+							{
+								// create a new Glowing Gold dust
+								InventoryObject * iObject = new InventoryObject(INVOBJ_INGREDIENT, 0, "Glowing Gold Dust");
+								InvIngredient * exIn = (InvIngredient *)iObject->extra;
+								exIn->type = INGR_GOLD_DUST;
+								exIn->quality = 1;
+
+								iObject->mass = 0.0f;
+								iObject->value = 1000;
+								iObject->amount = 1;
+								// add it to the inventory of the monster that's about to die
+								curMonster->inventory->AddItemSorted(iObject);
+
+							}
+						}
+					}
+					curMonster->isDead = TRUE;
+					curMonster->bane = NULL;
+					if (controllingAvatar)
+					{
+						curMonster->bane = controllingAvatar;  // set bane
+						curMonster->HandleQuestDeath();		 // call quest death handler
+					}
+
+
+					if (curMonster->myGenerator && 1 == curMonster->myGenerator->WhatAmI())
+					{
+						MapListState oldState = ss->mobList->GetState();
+
+						BBOSArmy *army = (BBOSArmy *)curMonster->myGenerator;
+						army->MonsterEvent(curMonster, ARMY_EVENT_DIED);
+
+						ss->mobList->SetState(oldState);
+					}
+					else if (curMonster->myGenerator && 2 == curMonster->myGenerator->WhatAmI())
+					{
+						MapListState oldState = ss->mobList->GetState();
+
+						BBOSAutoQuest *quest = (BBOSAutoQuest *)curMonster->myGenerator;
+						quest->MonsterEvent(curMonster, AUTO_EVENT_DIED);
+						ss->mobList->SetState(oldState);
+					}
+
+
+				}
+				else if (!(curMonster->curMonsterTarget))
+				{
+					curMonster->lastAttackTime = now;
+					curMonster->curMonsterTarget = this;
+				}
+
+
+			}
+			else
+			{
+				// whish!
+				if (!(curMonster->curMonsterTarget))
+				{
+					curMonster->lastAttackTime = now;
+					curMonster->curMonsterTarget = this;
+				}
+
+			}
+		}
+		// get next monster
+		curMob = (BBOSMob *)ss->mobList->GetNext();
+	}
+
+}
+
+void BBOSMonster::BMUnicornAttack(SharedSpace *ss) // and also butterfiles
+{
+	DWORD now = timeGetTime();
+	std::vector<TagID> tempReceiptList;
+	MessInfoText infoText;
+
+	// generic particle efect
+	MessGenericEffect messGE;
+	messGE.avatarID = -1;
+	messGE.mobID = (long)this;
+	messGE.x = cellX;
+	messGE.y = cellY;
+	messGE.r = rand() % 256;
+	messGE.g = rand() % 256;
+	messGE.b = rand() % 256;
+	messGE.type = 0;  // type of particles
+	messGE.timeLen = 1; // in seconds
+	ss->SendToEveryoneNearBut(0, cellX, cellY,
+		sizeof(messGE), (void *)&messGE);
+
+	BBOSMob *curMob = (BBOSMob *)ss->mobList->GetFirst(cellX, cellY,1);
+	while (curMob)
+	{
+		if (curMob->WhatAmI() == SMOB_MONSTER) // ignore ground effects, merchants,chests, etc.
+		{
+			BBOSMonster *curMonster = (BBOSMonster *)curMob;
+			int petenergy = 0;
+			if (curMonster->controllingAvatar // safe because we have a curMonstertarget
+				&& curMonster->controllingAvatar->BeastStat() > 9) // beast stat > 9
+			{
+				// go through skills
+				InventoryObject *io = (InventoryObject *)
+					curMonster->controllingAvatar->charInfoArray[curMonster->controllingAvatar->curCharacterIndex].skills->objects.First();
+				while (io)
+				{
+					if (!strcmp("Pet Energy", io->WhoAmI())) // check for pet energy (beastmaster version of dodge)
+					{
+						InvSkill *skillInfo = (InvSkill *)io->extra;
+						petenergy = skillInfo->skillLevel;
+					}
+					io = (InventoryObject *)
+						curMonster->controllingAvatar->charInfoArray[curMonster->controllingAvatar->curCharacterIndex].skills->objects.Next();
+				}
+			}
+			int cVal;
+			if (petenergy > curMonster->defense)
+			{
+				cVal = toHit - petenergy;
+			}
+			else
+			{
+				cVal = toHit - curMonster->defense;
+			}
+			if (magicEffectAmount[DRAGON_TYPE_WHITE] > 0)
+				cVal -= magicEffectAmount[DRAGON_TYPE_WHITE] * 1.0f;
+
+			int chance = 2 + (rand() % 20) + (rand() % 20) + cVal;
+
+			if (cVal + 40 <= 20) // if monster can't EVER hit
+			{
+				if (6 == (rand() % 400)) // 1-in-400 chance of hitting anyway
+					chance = 30;  // Hit!
+			}
+			chance = 30; // auto hits!
+			if (curMonster == this)
+			{
+				chance = 0; // miss myself. :)
+			}
+						 //    2. if chance > 20, hit was successful
+			if (chance > 20)
+			{
+				//    3. damage = damage
+				int dDone = damageDone;
+				if (dDone < 0)
+					dDone = 0; 
+
+				dDone += (int)rnd(0, dDone);
+
+
+				MessMonsterHealth messHealth;
+				messHealth.mobID = (unsigned long)curMonster;
+				messHealth.health = curMonster->health - dDone;
+				messHealth.healthMax = curMonster->maxHealth;
+				ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messHealth), &messHealth, 2);
+				curMonster->health -= dDone;
+				if (controllingAvatar)
+					curMonster->RecordDamageForLootDist(dDone, controllingAvatar); // credit the controlling avatar
+				// send events
+				if (curMonster->myGenerator && 1 == curMonster->myGenerator->WhatAmI()) // target has a genrator,a dn it's an army
+				{
+					BBOSArmy *army = (BBOSArmy *)curMonster->myGenerator;
+					army->MonsterEvent(curMonster, ARMY_EVENT_ATTACKED); // send attack event to tell army that this member was attacked.
+					//				curMob = (BBOSMob *) ss->mobs->Find(this);
+				}
+				if (curMonster->myGenerator && 2 == curMonster->myGenerator->WhatAmI()) // target has a genrator,a dn it's an quest
+				{
+					BBOSAutoQuest *quest = (BBOSAutoQuest *)curMonster->myGenerator;
+					quest->MonsterEvent(curMonster, AUTO_EVENT_ATTACKED); // send attack event to tell quest that this member was attacked (if it cares).
+					//				curMob = (BBOSMob *) ss->mobs->Find(this);
+				}
+				if (curMonster->health <= 0)
+				{
+					// Same check as for normal kills
+					MessMonsterAttack messAA;
+					messAA.avatarID = (int)curMonster;
+					messAA.mobID = (long)this;
+					messAA.damage = -1000;
+					//				messAA.health   = -1000;
+					ss->SendToEveryoneNearBut(0, cellX, cellY, sizeof(messAA), &messAA, 2);
+					// beastmasters pet stats improve for killing monsters.
+					if (controllingAvatar && (controllingAvatar->BeastStat() > 9))
+					{
+						// do stat check to see if we can get a boost.
+						if (defense <= curMonster->toHit) // if monsters tohit >= defense
+						{
+							//boost some stats
+							maxHealth = maxHealth * (defense + 1) / defense; //recalculate health as if it were a higher level monster.
+							defense++; // better defense to keep from gettign advancement from the same types of monsters.
+							toHit++;   // so we can hit more often.
+							damageDone++; // and do some more damage.
+							controllingAvatar->SaveAccount(); // and save the character so the pets boosted stats get saved.
+							// and, sometimes, add gold dust to the dead monster's inventory
+							bool GiveGold = FALSE;  // default, will set to true later.
+							int GoldEveryXLevels = 5; // change me to make them more or less common.
+							if ((controllingAvatar->GetTamingExp() < 1) && (controllingAvatar->GetTamingLevel() < 2)) // no tame skill, or haven't tamed the next golem.
+							{
+								// we haven't tamed anything else, you are allowed to reset to gather more golds for your first Scythe
+								GiveGold = TRUE;
+							}
+							if ((controllingAvatar->GetTamingExp() < subType) || (controllingAvatar->GetTamingLevel() < 2)) // if current monster is not the one that will be replaced if you release
+							{
+								// we will have to retame a new one to bump it's level back, using charges.
+								GiveGold = TRUE;
+							}
+							if (type > 26) // if monster is vlord or better
+							{
+								// go ahead and let them get gold dust anyway, even if the level is reset. tey are already hard to level withotu spending mucho gold
+								GiveGold = TRUE;
+							}
+							if (GiveGold && ((defense - monsterData[type][subType].defense) % GoldEveryXLevels) == 0) // every five levels, if we aren't disqualified.
+							{
+								// create a new Glowing Gold dust
+								InventoryObject * iObject = new InventoryObject(INVOBJ_INGREDIENT, 0, "Glowing Gold Dust");
+								InvIngredient * exIn = (InvIngredient *)iObject->extra;
+								exIn->type = INGR_GOLD_DUST;
+								exIn->quality = 1;
+									
+								iObject->mass = 0.0f;
+								iObject->value = 1000;
+								iObject->amount = 1;
+								// add it to the inventory of the monster that's about to die
+								curMonster->inventory->AddItemSorted(iObject);
+
+							}
+						}
+					}
+					curMonster->isDead = TRUE;
+					curMonster->bane = NULL;
+					if (controllingAvatar)
+					{
+						curMonster->bane = controllingAvatar;  // set bane
+						curMonster->HandleQuestDeath();		 // call quest death handler
+					}
+
+
+					if (curMonster->myGenerator && 1 == curMonster->myGenerator->WhatAmI())
+					{
+						MapListState oldState = ss->mobList->GetState();
+
+						BBOSArmy *army = (BBOSArmy *)curMonster->myGenerator;
+						army->MonsterEvent(curMonster, ARMY_EVENT_DIED);
+
+						ss->mobList->SetState(oldState);
+					}
+					else if (curMonster->myGenerator && 2 == curMonster->myGenerator->WhatAmI())
+					{
+						MapListState oldState = ss->mobList->GetState();
+
+						BBOSAutoQuest *quest = (BBOSAutoQuest *)curMonster->myGenerator;
+						quest->MonsterEvent(curMonster, AUTO_EVENT_DIED);
+						ss->mobList->SetState(oldState);
+					}
+					
+					
+				}
+				else if (!(curMonster->curMonsterTarget))
+				{
+					curMonster->lastAttackTime = now;
+					curMonster->curMonsterTarget = this;
+				}
+
+
+			}
+			else
+			{
+				// whish!
+				if (!(curMonster->curMonsterTarget))
+				{
+					curMonster->lastAttackTime = now;
+					curMonster->curMonsterTarget = this;
+				}
+
+			}
+		}
+		// get next monster
+		curMob = (BBOSMob *)ss->mobList->GetNext();
 	}
 
 }
@@ -2302,7 +3917,9 @@ void BBOSMonster::VLordAttack(SharedSpace *ss)
 void BBOSMonster::PortalBat(SharedSpace *ss)
 {
 	char tempText[1024];
-
+	int searchtype = 26; // bats by default
+	if ((ss->WhatAmI() == SPACE_LABYRINTH) && (((LabyrinthMap *)ss)->type == REALM_ID_LAB3)) // if in level three lab
+		searchtype = 29; // find bunnies instead.
 	MapListState state = ss->mobList->GetState();
 	int foundBat = FALSE;
 	BBOSMob *tMob = NULL;
@@ -2310,10 +3927,12 @@ void BBOSMonster::PortalBat(SharedSpace *ss)
 	while (tMob && !foundBat)
 	{
 		if (SMOB_MONSTER == tMob->WhatAmI() && 
-			 26 == ((BBOSMonster *) tMob)->type && 
+			 searchtype == ((BBOSMonster *) tMob)->type && 
 			 4 == (rand() % 10))
 		{
 			foundBat = TRUE;
+			if (((BBOSMonster *)tMob)->controllingAvatar)
+				foundBat = FALSE; // don't find controlled monsters.
 		}
 		if (!foundBat)
 			tMob = ss->mobList->GetNext();
@@ -2330,9 +3949,11 @@ void BBOSMonster::PortalBat(SharedSpace *ss)
 		messMobDisappear.y = tMob->cellY;
 		ss->SendToEveryoneNearBut(0, tMob->cellX, tMob->cellY,
 			sizeof(messMobDisappear),(void *)&messMobDisappear,6);
-
-		tMob->cellX = tMob->targetCellX = targetCellX;
-		tMob->cellY = tMob->targetCellY = targetCellY;
+		// also update it's spawn location so it will chase you properly
+		tMob->cellX = tMob->targetCellX = ((BBOSMonster *)tMob)->spawnX = targetCellX; // cast is safe since we KNOW it's a bat
+		tMob->cellY = tMob->targetCellY = ((BBOSMonster *)tMob)->spawnY = targetCellY;
+//		tMob->cellX = tMob->targetCellX = targetCellX;
+//		tMob->cellY = tMob->targetCellY = targetCellY;
 		ss->mobList->Move(tMob);
 
 		// send arrival message
@@ -2361,7 +3982,10 @@ void BBOSMonster::PortalBat(SharedSpace *ss)
 							 sizeof(messGE),(void *)&messGE);
 
 		// announce the summoning
-		sprintf(&(tempText[2]),"A bat has been summoned!");
+		if ((ss->WhatAmI() == SPACE_LABYRINTH) && (((LabyrinthMap *)ss)->type == REALM_ID_LAB3)) // if in level three lab
+			sprintf(&(tempText[2]), "A bunny has been summoned!");
+		else
+			sprintf(&(tempText[2]), "A bat has been summoned!");
 		tempText[0] = NWMESS_PLAYER_CHAT_LINE;
 		tempText[1] = TEXT_COLOR_SHOUT;
 		ss->SendToEveryoneNearBut(0, tMob->cellX, tMob->cellY, 

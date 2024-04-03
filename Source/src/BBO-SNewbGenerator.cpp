@@ -65,9 +65,10 @@ void BBOSNewbGenerator::Tick(SharedSpace *ss)
 			{
 				if (count[i][j] < max[i][j] && monsterData[i][j].name[0])
 				{
-					if (MONSTER_PLACE_DUNGEON != monsterData[i][j].placementFlags &&
-						 MONSTER_PLACE_SPIRITS != monsterData[i][j].placementFlags &&
-						 SPACE_GROUND == ss->WhatAmI())
+					if (MONSTER_PLACE_DUNGEON != monsterData[i][j].placementFlags && // not a dungeon monster
+						MONSTER_PLACE_SPIRITS != monsterData[i][j].placementFlags && // not a spirit realm monster
+						0 != monsterData[i][j].placementFlags && // not an unplacable monster
+						SPACE_GROUND == ss->WhatAmI())
 					{																 
 						int mx, my, good;
 						GroundMap *gm = (GroundMap *) ss;  // ASSUMPTION!!!
@@ -79,31 +80,27 @@ void BBOSNewbGenerator::Tick(SharedSpace *ss)
 							good = TRUE;
 
 							int color = gm->Color(mx,my);
-							if (color > 7 || color < 2)
+							if (color > 5 || color < 1)
 								good = FALSE;
 							else
 							{
+								if (1 == color && 
+									 !(MONSTER_PLACE_GRASS & monsterData[i][j].placementFlags)
+									)
+									good = FALSE;
 								if (2 == color && 
 									 !(MONSTER_PLACE_GRASS & monsterData[i][j].placementFlags)
 									)
 									good = FALSE;
 								if (3 == color && 
-									 !(MONSTER_PLACE_GRASS & monsterData[i][j].placementFlags)
+									 !(MONSTER_PLACE_SWAMP & monsterData[i][j].placementFlags)
 									)
 									good = FALSE;
-								if (4 == color &&
-									!(MONSTER_PLACE_WASTE & monsterData[i][j].placementFlags)
-									)
-									good = FALSE;
-								if (5 == color &&
-									!(MONSTER_PLACE_SWAMP & monsterData[i][j].placementFlags)
-									)
-									good = FALSE;
-								if (6 == color &&
+								if (4 == color && 
 									 !(MONSTER_PLACE_DESERT & monsterData[i][j].placementFlags)
 									)
 									good = FALSE;
-								if (7 == color && 
+								if (5 == color && 
 									 !(MONSTER_PLACE_SNOW & monsterData[i][j].placementFlags)
 									)
 									good = FALSE;

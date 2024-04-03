@@ -38,7 +38,7 @@ ArmyChaplain::ArmyChaplain(SharedSpace *s, int centerX, int centerY, int sX, int
 		am = new ArmyMember();
 		am->quality = 1;
 		am->type = -2;
-		am->subType = 5; // Dragon Acolytes
+		am->subType = 5; // Dragon Prelates
 		am->targetX = centerX + spaceOffset[i][0];
 		am->targetY = centerY + spaceOffset[i][1];
 		atEase.Append(am);
@@ -60,7 +60,7 @@ BBOSMonster *ArmyChaplain::MakeSpecialMonster(ArmyMember *curMember)
 		// create Dragon Chaplain
 		BBOSMonster *monster = new BBOSMonster(7,4, this);  // make overlord dragon
 
-		sprintf(monster->uniqueName,"Dragon Chaplain");
+		sprintf(monster->uniqueName,"Dragon Chaplain"); // don' tneed to do this anymore
 		monster->sizeCoeff = 1.0f;
 
 		monster->health = monster->maxHealth = 15000;
@@ -70,9 +70,9 @@ BBOSMonster *ArmyChaplain::MakeSpecialMonster(ArmyMember *curMember)
 		monster->dropAmount         = 20;
 
 		// add 2 red dusts (formerly green)
-		InventoryObject *iObject = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Red Dust");
+		InventoryObject *iObject = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Green Dust");
 		InvIngredient *exIn = (InvIngredient *)iObject->extra;
-		exIn->type     = INGR_RED_DUST;
+		exIn->type     = INGR_GREEN_DUST;
 		exIn->quality  = 1;
 
 		iObject->mass = 0.0f;
@@ -80,10 +80,10 @@ BBOSMonster *ArmyChaplain::MakeSpecialMonster(ArmyMember *curMember)
 		iObject->amount = 2;
 		monster->inventory->objects.Append(iObject);
 
-		monster->r = 100;
+		monster->r = 100; 
 		monster->g = 255;
-		monster->b = 100;
-
+		monster->b = 100; 
+		monster->tamingcounter = 1000;	// no taming a camp
 		return monster;
 	}
 
@@ -101,9 +101,9 @@ BBOSMonster *ArmyChaplain::MakeSpecialMonster(ArmyMember *curMember)
 		monster->defense            = 45;
 		monster->dropAmount         = 2;
 
-		monster->r = 100;
+		monster->r = 255; // lag stopping change.
 		monster->g = 255;
-		monster->b = 100;
+		monster->b = 255; // lag stoppign change
 
 		return monster;
 	}

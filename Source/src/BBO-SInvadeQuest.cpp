@@ -72,6 +72,7 @@ BBOSInvadeQuest::~BBOSInvadeQuest()
 void BBOSInvadeQuest::Tick(SharedSpace *unused)
 {
 	char tempText[1024];
+	char tempText2[1024];
 
 	DWORD delta;
 	DWORD now = timeGetTime();
@@ -103,7 +104,12 @@ void BBOSInvadeQuest::Tick(SharedSpace *unused)
 			totalInvadeQuestMembersKilled = 0;
 			killedOnSpot = 0;
 
-			sprintf(&(tempText[2]),"A strange power gathers in %s!", townList[index].name);
+			sprintf(&(tempText[2]), "A strange power gathers in %s!", townList[index].name);
+			sprintf(tempText2, "A strange power gathers in %s!", townList[index].name);
+			FILE *source = fopen("revenantlocations.txt", "a");
+			fprintf(source, "%s\n", tempText2);
+			fclose(source);
+
 			tempText[0] = NWMESS_PLAYER_CHAT_LINE;
 			tempText[1] = TEXT_COLOR_DATA;
 	  		bboServer->lserver->SendMsg(strlen(tempText) + 1,(void *)&tempText, 0, NULL);
@@ -165,28 +171,38 @@ void BBOSInvadeQuest::Tick(SharedSpace *unused)
 						int dontMove = FALSE;
 						for (int i = 0; i < NUM_OF_TOWNS; ++i)
 						{
-							if (townList[i].x == monster->targetCellX && townList[i].y == monster->targetCellY)
-								dontMove = TRUE;
+							if (townList[i].x == monster->targetCellX && townList[i].y == monster->targetCellY) // if the town sparkle is in the way
+								dontMove = TRUE; // don't move into it.
+						}
+						if (dontMove) // go the other way
+						{
+							if (abs(monster->cellX - centerX) <  // prefer going straight to going for diagonal for this move only
+							abs(monster->cellY - centerY))
+							{
+								if (monster->cellX > centerX)
+									monster->targetCellX = monster->cellX - 1;
+								else
+									monster->targetCellX = monster->cellX + 1;
+							}
+							else
+							{
+								if (monster->cellY > centerY)
+									monster->targetCellY = monster->cellY - 1;
+								else
+									monster->targetCellY = monster->cellY + 1;
+							}
 						}
 
-						if (!dontMove)
-						{
-							monster->isMoving = TRUE;
-							monster->moveStartTime = timeGetTime();
+						monster->isMoving = TRUE;
+						monster->moveStartTime = timeGetTime();
 
-							MessMobBeginMove bMove;
-							bMove.mobID = (unsigned long) monster;
-							bMove.x = monster->cellX;
-							bMove.y = monster->cellY;
-							bMove.targetX = monster->targetCellX;
-							bMove.targetY = monster->targetCellY;
-							ss->SendToEveryoneNearBut(0, monster->cellX, monster->cellY, sizeof(bMove), &bMove);
-						}
-						else
-						{
-							monster->targetCellX = monster->cellX;
-							monster->targetCellY = monster->cellY;
-						}
+						MessMobBeginMove bMove;
+						bMove.mobID = (unsigned long) monster;
+						bMove.x = monster->cellX;
+						bMove.y = monster->cellY;
+						bMove.targetX = monster->targetCellX;
+						bMove.targetY = monster->targetCellY;
+						ss->SendToEveryoneNearBut(0, monster->cellX, monster->cellY, sizeof(bMove), &bMove);
 					}
 
 					if (7 == rand() % 50)
@@ -229,7 +245,7 @@ void BBOSInvadeQuest::Tick(SharedSpace *unused)
 			BBOSMob *curMob = (BBOSMob *) ss->avatars->First();
 			while (curMob)
 			{
-				if (abs(curMob->cellX - centerX) < 5 && abs(curMob->cellY - centerY) < 5) 
+				if ((curMob->WhatAmI() == SMOB_AVATAR) && abs(curMob->cellX - centerX) < 5 && abs(curMob->cellY - centerY) < 5) 
 				{
 					BBOSAvatar *curAvatar = (BBOSAvatar *) curMob;
 
@@ -248,6 +264,7 @@ void BBOSInvadeQuest::Tick(SharedSpace *unused)
 			}
 
 			questState = INVADEQUEST_RECOVERING;
+			totalInvadeQuestMembersKilled = 0; //clear the counter after rev summon so no blues drop. :)
 			sprintf(&(tempText[2]),"The sky splits open.  The Revenants have been summoned!");
 			tempText[0] = NWMESS_PLAYER_CHAT_LINE;
 			tempText[1] = TEXT_COLOR_DATA;
@@ -320,6 +337,9 @@ void BBOSInvadeQuest::CreateMonster(void)
 		monster->magicResistance = 0.99f;
 
 	monster->healAmountPerSecond = monsterPower/3;
+	if (monster->healAmountPerSecond < 10)  // if t's really low
+		monster->healAmountPerSecond = 10;  // boost regen enough that a noob beastmaster can't kill it
+	monster->tamingcounter = 1000;	// no taming a revenant
 
 	// announce it
 	MessMobAppearCustom mAppear;
@@ -375,10 +395,12 @@ void BBOSInvadeQuest::MonsterEvent(BBOSMonster *theMonster, int eventType, int x
 	  		bboServer->lserver->SendMsg(strlen(tempText) + 1,(void *)&tempText, 0, NULL);
 		}
 
-		if (1 == theMonster->subType)
+		if (1 == theMonster->subType)  // revenants drop an Onyx each.
 			ss->DoMonsterDropSpecial(theMonster,21);
 		else if (centerX == theMonster->cellX && centerY == theMonster->cellY)
 			++killedOnSpot;
+		if (totalInvadeQuestMembersKilled > 140) // picking off the stragglers
+			ss->DoMonsterDropSpecial(theMonster, 0); //  you get shiny blue dusts for protecting the town.
 		/*
 		int num = monsterPower/300 + rnd(0, monsterPower) / 300;
 		for (int i = 0; i < num; ++i)
@@ -410,6 +432,7 @@ InvadeQuestMember * BBOSInvadeQuest::FindMemberByMonster(BBOSMonster *monster,
 //******************************************************************
 void BBOSInvadeQuest::KillMember(InvadeQuestMember * curMember, DoublyLinkedList *srcList)
 {
+	if (questState!=INVADEQUEST_RECOVERING) // dont' increase the counter if the revs wer already summoned, or if it already past 140
 	++totalInvadeQuestMembersKilled;
 
 	curMember->monster = (BBOSMonster *)30;
@@ -483,6 +506,7 @@ void BBOSInvadeQuest::ResurrectMonster(InvadeQuestMember *curMember)
 	monster->myGenerator = this;
 	curMember->monster = monster;
 	curMember->monsterCreationTime = monster->creationTime;
+	monster->tamingcounter = 1000;	// no taming event mobs it might mess up the event.
 
 	// change the army member to the correct state
 	curMember->isDead = FALSE;

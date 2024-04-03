@@ -19,6 +19,7 @@ public:
 
 	int type, amount;
 	int r,g,b;
+	int killme;
 };
 
 #endif

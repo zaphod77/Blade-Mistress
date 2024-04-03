@@ -75,7 +75,9 @@ BBOSArmy::~BBOSArmy()
 void BBOSArmy::MonsterEvent(BBOSMonster *theMonster, int eventType, int x, int y)
 {
 	if (theMonster->controllingAvatar) // forget about controlled avatars.
+	{
 		return;
+	}
 
 	if (-10 == x)
 	{
@@ -223,7 +225,7 @@ void BBOSArmy::MonsterEvent(BBOSMonster *theMonster, int eventType, int x, int y
 		// finally, if I'm hurt bad, back off and come back
 		if (ARMY_EVENT_ATTACKED == eventType)
 		{
-			if (theMonster->health *2 < theMonster->maxHealth && !theMonster->isMoving)
+			if (theMonster->health *2 < theMonster->maxHealth && !theMonster->isMoving && theMonster->magicEffectAmount[MONSTER_EFFECT_BIND] <= 0)
 			{
 				if (rand() % 2)
 					theMonster->targetCellX = x + ((rand()%2)*2-1);
@@ -238,7 +240,7 @@ void BBOSArmy::MonsterEvent(BBOSMonster *theMonster, int eventType, int x, int y
 				bMove.y = theMonster->cellY;
 				bMove.targetX = theMonster->targetCellX;
 				bMove.targetY = theMonster->targetCellY;
-				ss->SendToEveryoneNearBut(0, (float)theMonster->cellX, (float)theMonster->cellY, sizeof(bMove), &bMove);
+				ss->SendToEveryoneNearBut(0, theMonster->cellX, theMonster->cellY, sizeof(bMove), &bMove);
 			}
 		}
 	}
@@ -368,7 +370,7 @@ void BBOSArmy::Tick(SharedSpace *unused)
 						bMove.y = monster->cellY;
 						bMove.targetX = monster->targetCellX;
 						bMove.targetY = monster->targetCellY;
-						ss->SendToEveryoneNearBut(0, (float)monster->cellX, (float)monster->cellY, sizeof(bMove), &bMove);
+						ss->SendToEveryoneNearBut(0, monster->cellX, monster->cellY, sizeof(bMove), &bMove);
 					}
 
 				}
@@ -396,7 +398,7 @@ void BBOSArmy::Tick(SharedSpace *unused)
 		{
 			// ELSE if the monster needs to move
 			if (!monster->isMoving && 
-				 monster->magicEffectAmount[MONSTER_EFFECT_BIND] <= 0 && 
+				 monster->magicEffectAmount[MONSTER_EFFECT_BIND] <= 0 && // safe because IsValidMonster would return fase if monster is NULL;
 				 (monster->cellX != curMember->targetX || 
 				  monster->cellY != curMember->targetY))
 			{
@@ -426,7 +428,7 @@ void BBOSArmy::Tick(SharedSpace *unused)
 				bMove.y = monster->cellY;
 				bMove.targetX = monster->targetCellX;
 				bMove.targetY = monster->targetCellY;
-				ss->SendToEveryoneNearBut(0, (float)monster->cellX, (float)monster->cellY, sizeof(bMove), &bMove);
+				ss->SendToEveryoneNearBut(0, monster->cellX, monster->cellY, sizeof(bMove), &bMove);
 			}
 		}	
 		else if (!curMember->isDead)
@@ -606,7 +608,10 @@ int BBOSArmy::IsValidMonster(BBOSMonster *monster, ArmyMember *curMember)
 	{
 		return FALSE;
 	}
-
+	if (monster->controllingAvatar)
+	{
+		return FALSE;  // controlled monsters are no longer valid members, and need replacing.
+	}
 	return TRUE;
 }
 
@@ -616,18 +621,21 @@ void BBOSArmy::ResurrectMonster(ArmyMember *curMember)
 	curMember->deadTimer = timeGetTime();
 	// create the creature at the spawn point
 	BBOSMonster *monster;
-	if (curMember->type >= 0)
+	if (curMember->type >= 0) {
 		monster = new BBOSMonster(curMember->type, curMember->subType, this);
+	}
 	else
 		monster = MakeSpecialMonster(curMember);
 
 	++totalArmyMembersBorn;
+
 	/*
 	char tempText[1024];
 	sprintf(tempText,"Member %ld : Monster born: %d-%d\n", 
 		     (long) curMember, monster->type, monster->subType);
 	DebugOutput(tempText);
 	*/
+
 	monster->cellX = spawnX + rand() % 3 -1;
 	monster->cellY = spawnY + rand() % 3 -1;
 	monster->targetCellX = monster->cellX;
@@ -645,7 +653,7 @@ void BBOSArmy::ResurrectMonster(ArmyMember *curMember)
 
 	mobAppear.x = monster->cellX;
 	mobAppear.y = monster->cellY;
-	ss->SendToEveryoneNearBut(0, (float)monster->cellX, (float)monster->cellY, 
+	ss->SendToEveryoneNearBut(0, monster->cellX, monster->cellY, 
 				 sizeof(mobAppear), &mobAppear);
 
 	// make sure it knows it belongs to this monster's army

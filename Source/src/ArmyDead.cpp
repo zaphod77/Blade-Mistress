@@ -31,7 +31,7 @@ ArmyDead::ArmyDead(SharedSpace *s, int centerX, int centerY, int sX, int sY, int
 	am->targetX = centerX;
 	am->targetY = centerY;
 	atEase.Append(am);
-
+	
 	// add leutenants
 	for (int i = 0; i < 4; ++i)
 	{
@@ -99,8 +99,8 @@ BBOSMonster *ArmyDead::MakeSpecialMonster(ArmyMember *curMember)
 		BBOSMonster *monster = new BBOSMonster(20,0, this); 
 		sprintf(monster->uniqueName,monsterData[20][0].name);
 
-		// add totems
 		InventoryObject *iObject;
+		// don't add totems, instead add all dusts.
 		/*
 		InventoryObject *iObject = new InventoryObject(INVOBJ_TOTEM,0,"Unnamed Totem");
 		InvTotem *extra = (InvTotem *)iObject->extra;
@@ -124,7 +124,6 @@ BBOSMonster *ArmyDead::MakeSpecialMonster(ArmyMember *curMember)
 		iObject->value = 1000;
 		iObject->amount = 2;
 		monster->inventory->objects.Append(iObject);
-
 		iObject = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Red Dust");
 		exIn = (InvIngredient *)iObject->extra;
 		exIn->type     = INGR_RED_DUST;
@@ -134,7 +133,7 @@ BBOSMonster *ArmyDead::MakeSpecialMonster(ArmyMember *curMember)
 		iObject->value = 1000;
 		iObject->amount = 2;
 		monster->inventory->objects.Append(iObject);
-/*
+
 		iObject = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Green Dust");
 		exIn = (InvIngredient *)iObject->extra;
 		exIn->type     = INGR_GREEN_DUST;
@@ -144,7 +143,7 @@ BBOSMonster *ArmyDead::MakeSpecialMonster(ArmyMember *curMember)
 		iObject->value = 1000;
 		iObject->amount = 2;
 		monster->inventory->objects.Append(iObject);
-*/
+
 		iObject = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing White Dust");
 		exIn = (InvIngredient *)iObject->extra;
 		exIn->type     = INGR_WHITE_DUST;
@@ -154,7 +153,7 @@ BBOSMonster *ArmyDead::MakeSpecialMonster(ArmyMember *curMember)
 		iObject->value = 1000;
 		iObject->amount = 2;
 		monster->inventory->objects.Append(iObject);
-/*
+
 		iObject = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Black Dust");
 		exIn = (InvIngredient *)iObject->extra;
 		exIn->type     = INGR_BLACK_DUST;
@@ -164,7 +163,7 @@ BBOSMonster *ArmyDead::MakeSpecialMonster(ArmyMember *curMember)
 		iObject->value = 1000;
 		iObject->amount = 2;
 		monster->inventory->objects.Append(iObject);
-*/
+
 		return monster;
 	}
 
@@ -178,9 +177,8 @@ BBOSMonster *ArmyDead::MakeSpecialMonster(ArmyMember *curMember)
 		BBOSMonster *monster = new BBOSMonster(19, -1 * curMember->type + 1, this); 
 		sprintf(monster->uniqueName,monsterData[19][-1 * curMember->type + 1].name);
 
-
-		// add totem?
-		switch(rand() % 3)
+		// add totem or dust
+		switch(rand() % 4)
 		{
 		case 0:
 			iObject = new InventoryObject(INVOBJ_TOTEM,0,"Unnamed Totem");
@@ -220,20 +218,7 @@ BBOSMonster *ArmyDead::MakeSpecialMonster(ArmyMember *curMember)
 			iObject->amount = 1;
 			monster->inventory->objects.Append(iObject);
 			break;
-/*
 		case 3:
-			iObject = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Green Dust");
-			exIn = (InvIngredient *)iObject->extra;
-			exIn->type     = INGR_GREEN_DUST;
-			exIn->quality  = 1;
-
-			iObject->mass = 0.0f;
-			iObject->value = 1000;
-			iObject->amount = 1;
-			monster->inventory->objects.Append(iObject);
-			break;
-
-		case 4:
 			iObject = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Black Dust");
 			exIn = (InvIngredient *)iObject->extra;
 			exIn->type     = INGR_BLACK_DUST;
@@ -244,7 +229,19 @@ BBOSMonster *ArmyDead::MakeSpecialMonster(ArmyMember *curMember)
 			iObject->amount = 1;
 			monster->inventory->objects.Append(iObject);
 			break;
-  */
+			/*
+			case 4:
+			iObject = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Green Dust");
+			exIn = (InvIngredient *)iObject->extra;
+			exIn->type     = INGR_GREEN_DUST;
+			exIn->quality  = 1;
+
+			iObject->mass = 0.0f;
+			iObject->value = 1000;
+			iObject->amount = 1;
+			monster->inventory->objects.Append(iObject);
+			break;
+			*/
 		}
 		return monster;
 	}

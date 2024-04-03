@@ -6,6 +6,7 @@
 
 #include "BBOServer.h"
 #include "BBO-Smonster.h"
+#include "BBO-Savatar.h"
 #include "BBO-Sgen-orcClan.h"
 #include "BBO.h"
 #include ".\helper\GeneralUtils.h"
@@ -122,7 +123,27 @@ void BBOSGenOrcClan::Tick(SharedSpace *ss)
 						mobAppear.y = monster->cellY;
 						ss->SendToEveryoneNearBut(0, monster->cellX, monster->cellY, 
 									 sizeof(mobAppear), &mobAppear);
-
+						// if we are an Orc Champion, we may have insta-respawned, so we should scan the square for avatars, and attack if we find one
+						if (monster->subType == 4) // orc Champion just spawned
+						{
+							// get the first Avatar
+							BBOSAvatar * curAvatar = (BBOSAvatar *) ss->avatars->First();
+							bool found = FALSE;
+							while (curAvatar && (!found))
+							{
+								if ((curAvatar->cellX == monster->cellX) && (curAvatar->cellX == monster->cellX)) // if in my cell
+								{
+									// if it's attackable
+									if (!curAvatar->isInvisible)      // if not invisible
+									{
+										monster->curTarget = curAvatar;		// target the first non invisible avatar I see
+										found = TRUE;						// stop looking
+																			// if it's a beastmaster, we will retarget when we get ticked.
+									}
+								}
+								curAvatar = (BBOSAvatar *)ss->avatars->Next();  // go to the next Avatar in the shared space regardless. we will stop if we found one.
+							}
+						}
 						return;
 
 					}

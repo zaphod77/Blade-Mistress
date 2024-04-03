@@ -114,8 +114,8 @@ BBOSMonster *ArmyOverlord::MakeSpecialMonster(ArmyMember *curMember)
 		monster->magicResistance = 0.25f;
 
 		monster->r = 255;
-		monster->g = 100;
-		monster->b = 100;
+		monster->g = 255; // lag stopping change
+		monster->b = 255; // lag stopping change
 
 		return monster;
 	}

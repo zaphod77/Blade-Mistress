@@ -5,35 +5,35 @@
 
 #include "BBOServer.h"
 #include "BBO-Smonster.h"
-#include "BBO-SchainQuest.h"
+#include "BBO-SChristmasQuest.h"
 #include "BBO.h"
 #include ".\helper\GeneralUtils.h"
 #include ".\network\NetWorldMessages.h"
 #include "MonsterData.h"
 
 enum
-{ 
-	CHAINQUEST_READY,
-	CHAINQUEST_ON,
-	CHAINQUEST_RECOVERING,
-	CHAINQUEST_MAX
+{
+	CHRISTMASQUEST_READY,
+	CHRISTMASQUEST_ON,
+	CHRISTMASQUEST_RECOVERING,
+	CHRISTMASQUEST_MAX
 };
 
 //******************************************************************
 //******************************************************************
-BBOSChainQuest::BBOSChainQuest(SharedSpace *s) : BBOSAutoQuest(s)
+BBOSChristmasQuest::BBOSChristmasQuest(SharedSpace *s) : BBOSAutoQuest(s)
 {
-	questState = CHAINQUEST_READY;
+	questState = CHRISTMASQUEST_RECOVERING;  // this quest starts off
 }
 
 //******************************************************************
-BBOSChainQuest::~BBOSChainQuest()
+BBOSChristmasQuest::~BBOSChristmasQuest()
 {
 
 }
 
 //******************************************************************
-void BBOSChainQuest::Tick(SharedSpace *unused)
+void BBOSChristmasQuest::Tick(SharedSpace *unused)
 {
 	char tempText[1024];
 
@@ -49,59 +49,44 @@ void BBOSChainQuest::Tick(SharedSpace *unused)
 
 	lastSpawnTime = now;
 
-	if (CHAINQUEST_READY == questState)
+	if (CHRISTMASQUEST_READY == questState) // if it was turned onby comand
 	{
-		int oneHour = 60 * 6;
-		if (bboServer->dayTimeCounter > 2.75f * oneHour &&
-			 bboServer->dayTimeCounter < 3.75f * oneHour)
-		{
-			if (1 == bboServer->weatherState) // if storming
-			{
-				questState = CHAINQUEST_ON;
+				questState = CHRISTMASQUEST_ON;
 				questCounter = 0;
-				monsterType = rand() % 9;
-				monsterPower = 4; // good start
+				monsterType = 32; // fix later when we actually add the reindeer
+				monsterPower = 2; // good start
 
-				sprintf(&(tempText[2]),"This storm is no ordinary storm...");
+				sprintf(&(tempText[2]),"Christmas cheer fills the air...");
 				tempText[0] = NWMESS_PLAYER_CHAT_LINE;
 				tempText[1] = TEXT_COLOR_DATA;
 	  			bboServer->lserver->SendMsg(strlen(tempText) + 1,(void *)&tempText, 0, NULL);
 
-				sprintf(&(tempText[2]),"It is a Demonic Storm.  Chaos is coming!");
+				sprintf(&(tempText[2]),"The Reindeer are coming to visit.");
 				tempText[0] = NWMESS_PLAYER_CHAT_LINE;
 				tempText[1] = TEXT_COLOR_DATA;
 	  			bboServer->lserver->SendMsg(strlen(tempText) + 1,(void *)&tempText, 0, NULL);
-			}
-		}
 	}
-	else if (CHAINQUEST_RECOVERING == questState)
-	{
-		int oneHour = 60 * 6;
-		if (bboServer->dayTimeCounter > 2.75f * oneHour &&
-			 bboServer->dayTimeCounter < 3.75f * oneHour)
-			 ;
-		else
-		{
-			questState = CHAINQUEST_READY;
-			questCounter = 0;
-		}
+	else if (CHRISTMASQUEST_RECOVERING == questState)
+	{  // do nothing, it does not start on it's own
 	}
-	else if (CHAINQUEST_ON == questState)
+	else if (CHRISTMASQUEST_ON == questState)
 	{
-		if (count[monsterType][0] <= 0)
+		if ((count[monsterType][0] <= 0) && (count[monsterType][1] <= 0))
 		{
-			if (questCounter < 6 * 10) // less than 10 minutes
+			// no time limit
+			// instead we count killed monsters.
+			if (totalMembersBorn <9) // 8 reindeer plus Rudolph. ;)
 			{
-				monsterPower *= rnd(1.3f, 1.5f);
+			//	monsterPower *= rnd(1.1f, 1.2f); //no increase in power for these.
 				CreateMonster();
 			}
 			else
 			{
-				sprintf(&(tempText[2]),"The Demonic Storm has abated.  The weary world can relax, for now.");
+				sprintf(&(tempText[2]),"The Reindeer have left their gifts behind.");
 				tempText[0] = NWMESS_PLAYER_CHAT_LINE;
 				tempText[1] = TEXT_COLOR_DATA;
 	  			bboServer->lserver->SendMsg(strlen(tempText) + 1,(void *)&tempText, 0, NULL);
-				questState = CHAINQUEST_RECOVERING;
+				questState = CHRISTMASQUEST_RECOVERING;
 			}
 		}
 	}
@@ -110,7 +95,7 @@ void BBOSChainQuest::Tick(SharedSpace *unused)
 
 
 //******************************************************************
-void BBOSChainQuest::CreateMonster(void)
+void BBOSChristmasQuest::CreateMonster(void)
 {
 	char tempText[1024];
 	char tempText2[1024];
@@ -144,33 +129,61 @@ void BBOSChainQuest::CreateMonster(void)
 	} while (!good);
 
 	// create the monster on the spot
-	BBOSMonster *monster = new BBOSMonster(monsterType,0,this);
+	BBOSMonster *monster;
+    if (totalMembersBorn<8)
+		monster = new BBOSMonster(monsterType, 0, this);
+	else
+	    monster = new BBOSMonster(monsterType, 1, this);
 	monster->cellX = monster->targetCellX = monster->spawnX = mx;
 	monster->cellY = monster->targetCellY = monster->spawnY = my;
 	ss->mobList->Add(monster);
-	sprintf(monster->uniqueName, "Storm Creature");
-
-	//	adjusts its power to match player power
-	monster->r               = 255;
-	monster->g               = 0;
-	monster->b               = 0;
+	switch (totalMembersBorn) 
+	{
+		case 0:
+			sprintf(monster->uniqueName, "Dasher");
+			break;
+		case 1:
+			sprintf(monster->uniqueName, "Dancer");
+			break;
+		case 2:
+			sprintf(monster->uniqueName, "Prancer");
+			break;
+		case 3:
+			sprintf(monster->uniqueName, "Vixen");
+			break;
+		case 4:
+			sprintf(monster->uniqueName, "Comet");
+			break;
+		case 5:
+			sprintf(monster->uniqueName, "Cupid");
+			break;
+		case 6:
+			sprintf(monster->uniqueName, "Donner");
+			break;
+		case 7:
+			sprintf(monster->uniqueName, "Blitzen");
+			break;
+		default:
+			break;
+	}
+	//	these don't need adjustment they are supposed to be easy.
 	monster->a               = 255;
-	monster->sizeCoeff       = 1.5f + 1.0f * monsterPower /800;
-	monster->health          = 40 * monsterPower;
-	monster->maxHealth       = 40 * monsterPower;
-	monster->damageDone      = monsterPower/20;
+//	monster->sizeCoeff       = 1.5f + 1.0f * monsterPower /800;
+//	monster->health          = 40 * monsterPower;
+//	monster->maxHealth       = 40 * monsterPower;
+//	monster->damageDone      = monsterPower/20;
 	if (monster->damageDone > 50)
 		monster->damageDone = 50;
 
-	monster->toHit           = monsterPower/14;
-	monster->defense         = monsterPower/14;
-	monster->dropAmount      = monsterPower/100;
-	monster->magicResistance = monsterPower/20/100;
+//	monster->toHit           = monsterPower/14;
+//	monster->defense         = monsterPower/14;
+//	monster->dropAmount      = monsterPower/100;
+//	monster->magicResistance = monsterPower/20/100;
 	if (monster->magicResistance > 0.99)
 		monster->magicResistance = 0.99;
 
-	monster->healAmountPerSecond = (int)monsterPower/3;
-	monster->tamingcounter = 1000;							// no tamed storm creatures!
+//	monster->healAmountPerSecond = (int)monsterPower/3;
+	monster->tamingcounter = 1000;					// this should be impossible anyway due to their incredibly low HP, but....
 	// announce it
 	MessMobAppearCustom mAppear;
 	mAppear.type = SMOB_MONSTER;
@@ -188,9 +201,9 @@ void BBOSChainQuest::CreateMonster(void)
 	ss->SendToEveryoneNearBut(0, monster->cellX, monster->cellY, 
 				 sizeof(mAppear), &mAppear);
 
-	sprintf(&(tempText[2]), "A bolt of lightning strikes at %dN %dE!  The world shudders!",
+	sprintf(&(tempText[2]), "A Reindeer prances down at %dN %dE!",
 		256 - my, 256 - mx);
-	sprintf(tempText2, "A bolt of lightning strikes at %dN %dE!  The world shudders!",
+	sprintf(tempText2, "A Reindeer prances down at %dN %dE!",
 		256 - my, 256 - mx);
 	FILE *source = fopen("stormlocations.txt", "a");
 	fprintf(source, "%s\n", tempText2);
@@ -206,9 +219,9 @@ void BBOSChainQuest::CreateMonster(void)
 	messGE.mobID    = 0;
 	messGE.x        = mx;
 	messGE.y        = my;
-	messGE.r        = 255;
+	messGE.r        = 50;
 	messGE.g        = 255;
-	messGE.b        = 255;
+	messGE.b        = 50;
 	messGE.type     = 0;  // type of particles
 	messGE.timeLen  = 2; // in seconds
 	ss->SendToEveryoneNearBut(0, mx, my,
@@ -220,19 +233,19 @@ void BBOSChainQuest::CreateMonster(void)
 }
 
 //******************************************************************
-void BBOSChainQuest::MonsterEvent(BBOSMonster *theMonster, int eventType, int x, int y)
+void BBOSChristmasQuest::MonsterEvent(BBOSMonster *theMonster, int eventType, int x, int y)
 {
 	if (theMonster->controllingAvatar) // forget about controlled avatars.
 		return;
 
 	if (AUTO_EVENT_ATTACKED == eventType)
 	{
+		//
 	}
 	else if (AUTO_EVENT_DIED == eventType)
 	{
-		int num = monsterPower/300 + rnd(0, monsterPower) / 300;
-		for (int i = 0; i < num; ++i)
-			ss->DoMonsterDropSpecial(theMonster,21);
+		// drop a special totem.
+			ss->DoMonsterDropSpecial(theMonster,31); // best totem in the game
 	}
 }
 

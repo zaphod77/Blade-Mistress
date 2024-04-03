@@ -22,6 +22,8 @@ public:
 
 	static TraderGoods *goods;
 	static int goodsRefCount;
+	char username[1024];
+	char playername[1024];
 
 };
 

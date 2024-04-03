@@ -54,11 +54,14 @@ public:
 	void RecordDamageForLootDist(int damageDone, BBOSAvatar *curAvatar);
 	void ClearDamageForLootDist (BBOSAvatar *curAvatar);
 	BBOSAvatar *MostDamagingPlayer(float degradeCoeff);
-	void MonsterMagicEffect(int type, float timeDelta, float amount);
+	int MonsterMagicEffect(int type, float timeDelta, float amount);
 	void HandlePossessedQuest(int amuletsGiven, SharedSpace *ss);
 	void HandleQuestDeath(void);
 	void AddPossessedLoot(int count);
 	void VLordAttack(SharedSpace *ss);
+	void UnicornAttack(SharedSpace *ss);
+	void BMVLordAttack(SharedSpace *ss);
+	void BMUnicornAttack(SharedSpace *ss);
 	void PortalBat(SharedSpace *ss);
 
 	int HasTarget(void) {if (curTarget || curMonsterTarget) return TRUE; return FALSE;};
@@ -76,9 +79,16 @@ public:
 	bool isVagabond;
 	DWORD creationTime, bombOuchTime;
 	int bombDamage;
+	int TotalbombDamage;
 	float magicResistance;
+	bool MoreMeat = false;
+	// AI system.  Needed for more complex monoster fights. Work in progress. :)
+	// currently used by the Unicorns, adn will be used by other monsers in the future.
+	bool SpecialAI = false;  // monster has complex AI if this is TRUE.
+	long AICounter = 0;		// increments every second if mSpecialAI is TRUE.  allows for actions to be taken based on time past.
+	long AIFlags = 0;		// can use this to implement fight phases and decision making.  These can be set by actions of players, by counter value, or by checking health. :)
 
-	BBOSAvatar *curTarget, *bane, *bombDropper;
+	BBOSAvatar *curTarget, *bane, *bombDropper, *questowner;
 	BBOSMonster *curMonsterTarget;
 	BBOSGenerator *myGenerator;
 
@@ -88,6 +98,7 @@ public:
 	int spawnX, spawnY;
 	int archMageMode;
 	int healAmountPerSecond;
+	int tamingcounter;
 
 	BBOSAvatar *attackerPtrList[10];
 	long attackerDamageList[10];

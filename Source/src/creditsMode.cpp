@@ -22,7 +22,7 @@
 #include "clientOnly.h"
 
 #include "BBOClient.h"
-#include "BBOServer.h"
+// #include "BBOServer.h"
 
 char *cred1Text = "Blade Mistress was created by these folks:\n\n\
 *** Concept, Design and Programming\n\
@@ -57,7 +57,7 @@ enum
 };
 
 //PlasmaTexture *bboClient->groundMap;
-extern BBOServer *server;
+// extern BBOServer *server;
 extern Client *	lclient;
 
 extern int playerInDungeon;

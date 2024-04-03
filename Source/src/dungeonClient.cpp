@@ -7,6 +7,7 @@
 #include ".\puma\noise.h"
 #include "BBO.h"
 #include "BBOClient.h"
+#include "version.h"
 
 extern Client *	lclient;
 
@@ -578,16 +579,34 @@ void DungeonPiece::RebuildWalls(void)
 DungeonClient::DungeonClient(int doid, char *doname)	 : DataObject(doid,doname)
 {
 	Init();
+#ifdef CHEATS
+	int cheats = 1;
+#else
+	int cheats = 0;
+#endif // CHEATS
 
 	wallMesh = new PumaMesh();
 	if (0 == WhatAmI())
 	{
-		wallMesh->LoadFromASC(puma->m_pd3dDevice,"dat\\wall1.ASE");
-		wallMesh->Scale(puma->m_pd3dDevice,0.13f,0.13f/2,0.13f);
+		if (cheats == 1)
+		{
+			wallMesh->LoadFromASC(puma->m_pd3dDevice, "dat\\wall1.ASE");
+			wallMesh->Scale(puma->m_pd3dDevice, 0.13f, 0.13f / 2, 0.13f);
+		}
+		else
+		{
+			int wallcrc = wallMesh->Load(puma->m_pd3dDevice, "dat\\wall1.pum");
+			if ((wallcrc != -2006447025)     // original wall file
+				&& (wallcrc != 1656512142))  // MVM's new cave wall is also allowed
+				abort();					// cheater loses their geo. MWAH HAH HAH!
+			wallMesh->Scale(puma->m_pd3dDevice, 0.13f, 0.13f / 2, 0.13f);
+		}
 	}
 	else
 	{
-		wallMesh->LoadFromASC(puma->m_pd3dDevice,"dat\\wallPlain.ASE");
+//		wallMesh->LoadFromASC(puma->m_pd3dDevice, "dat\\wallPlain.ASE");
+//		wallMesh->SaveCompressed(puma->m_pd3dDevice, "dat\\wallPlain.MEC");
+		wallMesh->LoadCompressed(puma->m_pd3dDevice, "dat\\wallPlain.MEC");
 		wallMesh->Scale(puma->m_pd3dDevice,0.13f,0.13f/2,0.13f);
 	}
 

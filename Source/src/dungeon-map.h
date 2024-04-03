@@ -5,7 +5,9 @@
 
 const int SPECIAL_DUNGEON_NOT        = 0x00;
 const int SPECIAL_DUNGEON_MODERATED  = 0x01;
-const int SPECIAL_DUNGEON_TEMPORARY	 = 0x02;
+const int SPECIAL_DUNGEON_TEMPORARY = 0x02;
+const int SPECIAL_DUNGEON_DOOMTOWER = 0x04;
+const int SPECIAL_DUNGEON_PACMAN	= 0x08;
 
 class BBOSChest;
 
@@ -58,6 +60,11 @@ public:
 
 	float tempPower;
 	int isLocked;
+	int MonsterCount;
+	int WallsDestroyed;
+	int maxdestroyed;
+	int NumberOfWalls;
+	int GeoDepth;
 
 };
 

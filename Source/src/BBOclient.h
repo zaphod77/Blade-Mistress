@@ -85,7 +85,7 @@ public:
 	DoublyLinkedList *monsterList, *staticList;
 	D3DMATERIAL8 neutralMaterial, planetMaterial;
 	PumaMesh *skyDome, *monsterMesh, *sackMesh, *caveMesh[5], *standinMesh, *chestMesh[2],
-		      *greatTreeMesh, *flowerMesh[3], *towerMesh, *tokenMesh[MAGIC_MAX], *ropEnteranceMesh, *castleMesh;
+		      *greatTreeMesh, *flowerMesh[3], *towerMesh, *tokenMesh[MAGIC_MAX+1], *ropEnteranceMesh, *castleMesh, *bombMesh, *bigbombMesh;
 	PumaAnim *avatarStand, *avatarRun, *avatarAttack, *avatarAttack2, *merchantAnim,
 		      *witchStandAnim, *witchTalkAnim;
 	LPDIRECT3DTEXTURE8 merchantBitmap, trainerBitmap, townmageBitmap, barArt[2];
@@ -113,7 +113,13 @@ public:
 	long wieldedPtr;
 	int isEditingDungeon, isInSpecialDungeon, showFrameRate, 
 		 cameraType, needToName, drunkenWalk;
-
+	int hidemap = 0;
+#ifdef CHEATS
+	int cheats = 1; // whether to allow cheating
+#else
+	int cheats = 0;
+#endif
+	long lastRealmID = -1;
 	D3DXVECTOR3 clickVerts[3*2*5];
 
 	DWORD lastTick;
@@ -123,7 +129,7 @@ public:
 	LPDIRECT3DVERTEXBUFFER8 lineOverlayGroundPtr; // Buffer to hold vertices
 	int numOfGroundLines;
 
-	DWORD timeOfDay, lastTenSecondTimer;
+	DWORD timeOfDay, lastTenSecondTimer,lastmacrotime,thismacrotime;
 
 
 	BackSoundManager bsMan;

@@ -143,11 +143,37 @@ MonsterInfo monsterInfo[NUM_OF_MONSTERS] =
 		"dat\\v_lord4.png", "dat\\v_lord5.png", "dat\\v_lord6.png", 
 		 0.3f, 0.35f, 0.4f, 0.45f, 0.5f, 0.55f},
 
-	// Lizard Man
-	{"dat\\lizard-idle", "dat\\lizard-walk", "dat\\lizard-attack", 
-		"dat\\lizard.png", "dat\\lizard.png", "dat\\lizard.png", 
-		"dat\\lizard.png", "dat\\lizard.png", "dat\\lizard-tiger.png", 
-		 0.7f, 0.8f, 0.9f, 1.2f, 1.4f, 1.7f}
+			// Lizard Man
+		{ "dat\\lizard-idle", "dat\\lizard-walk", "dat\\lizard-attack",
+			"dat\\lizard.png", "dat\\lizard.png", "dat\\lizard.png",
+			"dat\\lizard.png", "dat\\lizard.png", "dat\\lizard-tiger.png",
+			0.7f, 0.8f, 0.9f, 1.2f, 1.4f, 1.7f },
+
+			// Bunny
+		{ "dat\\test-idle", "dat\\test-run", "dat\\test-attack",
+			"dat\\test1.png", "dat\\test2.png", "dat\\test3.png",
+			"dat\\test4.png", "dat\\test5.png", "dat\\test6.png",
+			0.8f, 0.9f, 1.0f, 1.1f, 1.2f, 1.3f },
+			 // Butterfly
+		 { "dat\\butterfly-fly", "dat\\butterfly-fly", "dat\\butterfly-attack",
+			 "dat\\butterfly-yellow.png", "dat\\butterfly-pink.png", "dat\\butterfly-brown.png",
+			 "dat\\butterfly-white.png", "dat\\butterfly-neonblue.png", "dat\\butterfly-purple.png",
+		0.05f, 0.06f, 0.12f, 0.13f, 0.14f, 0.15f },
+		// Unicorn
+	{ "dat\\unicorn-idle", "dat\\unicorn-run", "dat\\unicorn-attack",
+	"dat\\unicorn_brown.png", "dat\\unicorn_white.png", "dat\\unicorn_pink.png",
+	"dat\\unicorn_purple.png", "dat\\unicorn_blue.png", "dat\\unicorn_black.png",
+	0.8f, 0.9f, 1.0f, 1.1f, 1.2f, 1.3f },
+		// Reindeer
+	{ "dat\\reindeer-stand", "dat\\reindeer-run", "dat\\reindeer-attack",
+	"dat\\deer-brown.png", "dat\\deer-rudolph.png", "",
+	"", "", "",
+	1.0f, 1.2f, 1.0f, 1.1f, 1.2f, 1.3f },
+		// heart
+	{ "dat\\heart-spin", "dat\\heart-spin", "dat\\heart-spin",
+	"dat\\heart.png", "", "",
+	"", "", "",
+	1.0f, 1.2f, 1.0f, 1.1f, 1.2f, 1.3f }
 
 };
 

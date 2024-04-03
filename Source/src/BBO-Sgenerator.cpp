@@ -452,6 +452,59 @@ void BBOSGenerator::Tick(SharedSpace *ss)
 						return;
 
 					}
+					if ((MONSTER_PLACE_LABY3 & monsterData[i][j].placementFlags) &&
+						SPACE_LABYRINTH == ss->WhatAmI() &&
+						REALM_ID_LAB3 == ((LabyrinthMap *)ss)->type)
+					{
+						int mx, my, good;
+						LabyrinthMap *rm = (LabyrinthMap *)ss;  // ASSUMPTION!!!
+
+						do
+						{
+							mx = (rand() % 60) + 2;
+							my = (rand() % 60) + 2;
+
+							good = TRUE;
+
+							if (!rm->CanMove(mx, my, mx, my))
+								good = FALSE;
+
+							if (4 == mx && 4 == my)
+								good = FALSE;
+
+						} while (!good);
+
+						BBOSMonster *monster = new BBOSMonster(i, j, this);
+						monster->cellX = mx;
+						monster->cellY = my;
+						monster->targetCellX = mx;
+						monster->targetCellY = my;
+						monster->spawnX = mx;
+						monster->spawnY = my;
+						ss->mobList->Add(monster);
+
+						MessMobAppear mobAppear;
+						mobAppear.mobID = (unsigned long)monster;
+						mobAppear.type = monster->WhatAmI();
+						mobAppear.monsterType = monster->type;
+						mobAppear.subType = monster->subType;
+						if (SPACE_DUNGEON == ss->WhatAmI())
+						{
+							mobAppear.staticMonsterFlag = FALSE;
+							if (!monster->isWandering)
+								mobAppear.staticMonsterFlag = TRUE;
+						}
+
+						mobAppear.x = monster->cellX;
+						mobAppear.y = monster->cellY;
+						ss->SendToEveryoneNearBut(0, monster->cellX, monster->cellY,
+							sizeof(mobAppear), &mobAppear);
+
+
+						return;
+
+					}
+
 				}
 			}
 		}

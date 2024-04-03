@@ -91,9 +91,18 @@ BladeRecord bladestaffList[3] =
 
 BladeRecord chaosList[3] =
 {
-	{"Chaos Knife" ,	  8, 4},	
-	{"Chaos Blade" ,	 16, 5},	
-	{"Chaos Sword" ,   32, 6}	
+	{ "Chaos Knife" ,	  8, 4 },
+{ "Chaos Blade" ,	 16, 5 },
+{ "Chaos Sword" ,   32, 6 }
+};
+BladeRecord scytheList[6] =
+{
+	{ "Pine Scythe" ,	  0, 6 },
+{ "Birch Scythe" ,	 1, 6 },
+{ "Spruce Scythe" ,	 2, 6 },
+{ "Oak Scythe" ,	 3, 6 },
+{ "Onyx Scythe" ,	 4, 6 },
+{ "Elm Scythe" ,   5, 6 }
 };
 
 char magicNameList[MAGIC_MAX][12] =
@@ -124,7 +133,7 @@ int greatTreePos[MAGIC_MAX][2] =
 };
 
 
-char ingotNameList[11][19] =
+char ingotNameList[15][19] =
 {
 	{"Tin"},
 	{"Aluminum"},
@@ -135,11 +144,15 @@ char ingotNameList[11][19] =
 	{"Mithril"},
 	{"Vizorium"},
 	{"Elatium"},
-	{"Chitin"},
-	{"Malignant"}
+    {"Chitin" },
+    {"Malignant" },
+    {"Tungsten" },
+    {"Titanium" },
+    {"Azrael" },
+    {"Chrome"}
 };
 
-int ingotRGBList[11][3] =
+int ingotRGBList[15][3] =
 {
 	{128,128,128},
 	{168,168,168},
@@ -150,12 +163,16 @@ int ingotRGBList[11][3] =
 	{228,228,228},
 	{128,  0,  0},
 	{  0, 50,128},
-	{  0,128,128},
-	{  0,128, 48}
+	{ 0,128,128 },
+	{ 0,128,48 },
+	{ 60,60,60 },
+	{ 182,175,169 },
+	{ 50,250,100 },
+	{ 128,250, 0}
 };
 
-float ingotPowerList[11] = {1,2,3,4,5,6,7,8,9,10,11};
-long  ingotValueList[11] = {1,5,15,50,250,1000,10000,50000,75000,80000,90000};
+float ingotPowerList[15] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
+long  ingotValueList[15] = {1,5,15,50,250,1000,10000,50000,75000,80000,90000,100000,110000,120000,130000};
 
 
 DragonRecord dragonInfo[DRAGON_QUALITY_NUM][DRAGON_TYPE_NUM] =
@@ -323,23 +340,51 @@ void LoadOptions(void)
 }
 
 
-char ageTextArray[6][15] =
+char ageTextArray[15][15] =
 {
 	{"Young"},
 	{"Young Adult"},
 	{"Adult"},
 	{"Mature"},
 	{"Elder"},
-	{"Counselor"}
+	{"Counselor"},
+	{"Methuselah"},
+	{"Rivers"},
+	{"Sand"},
+	{"Grass"},
+	{"Rocks"},
+	{"Trees"},
+	{"Hills"},
+	{"Mountains"},
+	{"Sky"},
+
 };
 
 //*******************************************************************************
 int CanHaveROP(int age, int clevel)
 {
 	
-	if (6 == age)
+	if (15 == age)
 		return FALSE;
-	if (5 == age && clevel >= 310 )
+	if (14 == age && clevel >= 163830)
+		return TRUE;
+	if (13 == age && clevel >= 81910)
+		return TRUE;
+	if (12 == age && clevel >= 40950)
+		return TRUE;
+	if (11 == age && clevel >= 20470)
+		return TRUE;
+	if (10 == age && clevel >= 10230)
+		return TRUE;
+	if (9 == age && clevel >= 5110)
+		return TRUE;
+	if (8 == age && clevel >= 2550)
+		return TRUE;
+	if (7 == age && clevel >= 1270)
+		return TRUE;
+	if (6 == age && clevel >= 630)
+		return TRUE;
+	if (5 == age && clevel >= 310)
 		return TRUE;
 	if (4 == age && clevel >= 150)
 		return TRUE;

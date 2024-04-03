@@ -81,6 +81,11 @@ DungeonMap::DungeonMap(int doid, char *doname, NetWorldRadio * ls) : SharedSpace
 			  rdNamePost[rand() % 11]);
 
 	isLocked = FALSE;
+	MonsterCount = 0;
+	WallsDestroyed = 0; // how many were blown up by player bombs
+	maxdestroyed = 1000; // safe default. can be changed during geo construction.
+	NumberOfWalls = 0;  // total number of walls remaining in the dungeon. used to calculate the maximum you can destroy before a collapse.
+	GeoDepth = 0;
 }
 
 //******************************************************************
@@ -103,37 +108,41 @@ void DungeonMap::InitNew(int w, int h, int eX, int eY, int rating)
 {
 	SharedSpace::InitNew(w, h, eX, eY);
 
-	sizeX = width  = w;
+	sizeX = width = w;
 	sizeY = height = h;
 	enterX = eX;
-	enterY =	eY;
-//	sprintf(name,"New Dungeon");
+	enterY = eY;
+	//	sprintf(name,"New Dungeon");
 	dungeonRating = rating;
 
 	floorIndex = rand() % NUM_OF_DUNGEON_FLOOR_TYPES;
-	outerWallIndex = 1 + (rand() % (NUM_OF_DUNGEON_WALL_TYPES-1));
-	int wIndex     = 1 + (rand() % (NUM_OF_DUNGEON_WALL_TYPES-1));
+	outerWallIndex = 1 + (rand() % (NUM_OF_DUNGEON_WALL_TYPES - 1));
+	int wIndex = 1 + (rand() % (NUM_OF_DUNGEON_WALL_TYPES - 1));
 
 	leftWall = new unsigned char[width * height];
-	topWall  = new unsigned char[width * height];
-	pathMap  = new int[width * height];
+	topWall = new unsigned char[width * height];
+	pathMap = new int[width * height];
 
-//	srand(0);
-
+	//	srand(0);
+	// one in three chance of a wall
 	for (int i = 0; i < w * h; ++i)
 	{
-		if (rand() % 3)
+		if (rand() % 3 || ((w == width/2) && (h == height/2))) // middle square is empty;
 			leftWall[i] = 0;
-		else
+		else {
 			leftWall[i] = wIndex;
+			NumberOfWalls++;
+		}
 	}
 
 	for (int i = 0; i < w * h; ++i)
 	{
-		if (rand() % 3)
+		if (rand() % 3 || ((w == width/2) && (h == height/2))) // middle square is empty of walls
 			topWall[i] = 0;
-		else
+		else {
 			topWall[i] = wIndex;
+			NumberOfWalls++;
+		}
 	}
 
 	groundInventory = new Inventory[w * h];
@@ -144,19 +153,54 @@ void DungeonMap::InitNew(int w, int h, int eX, int eY, int rating)
 			SetPathMap();
 	}
 
-	if (SPECIAL_DUNGEON_TEMPORARY & specialFlags)
+	if ((SPECIAL_DUNGEON_TEMPORARY & specialFlags) || (SPECIAL_DUNGEON_DOOMTOWER & specialFlags))
 	{
 		Randomize(2);
-
-		topWall [width+width-1] = wIndex;
-		leftWall[width-1] = 0;
-		topWall [width+width-2] = wIndex;
-		leftWall[width-2] = 0;
-		topWall [width+width-3] = wIndex;
-		leftWall[width-3] = 0;
-		topWall [width+width-4] = 0;
-		leftWall[width-4] = 0;
-
+		if (!bboServer->remove_geo_walls) // if we arent' just removing all the walls
+		{
+			// fix the sentinel area
+			if (topWall[width + width - 1] == 0)
+			{
+				topWall[width + width - 1] = wIndex;
+				NumberOfWalls++;
+			}
+			if (leftWall[width - 1])
+			{
+				leftWall[width - 1] = 0;
+				NumberOfWalls--;
+			}
+			if (topWall[width + width - 2] == 0)
+			{
+				topWall[width + width - 2] = wIndex;
+				NumberOfWalls++;
+			}
+			if (leftWall[width - 2]>0)
+			{
+				leftWall[width - 2] = 0;
+				NumberOfWalls--;
+			}
+			if (topWall[width + width - 3]==0) 
+			{
+				topWall[width + width - 3] = wIndex;
+				NumberOfWalls++;
+			}
+			if (leftWall[width - 3]>0) 
+			{
+				leftWall[width - 3] = 0;
+				NumberOfWalls--;
+			}
+			if (topWall[width + width - 4]>0) 
+			{
+				topWall[width + width - 4] = 0;
+				NumberOfWalls--;
+			}
+			if (leftWall[width - 4] > 0) 
+			{
+				leftWall[width - 4] = 0;
+				NumberOfWalls--;
+			}
+		}
+		// and make sure we can still get to it.
 		if (!SetPathMap())
 		{
 			while (!ForceDungeonContiguous())
@@ -165,6 +209,7 @@ void DungeonMap::InitNew(int w, int h, int eX, int eY, int rating)
 	}
 }
 
+
 //******************************************************************
 void DungeonMap::Randomize(int ratio)
 {
@@ -172,7 +217,8 @@ void DungeonMap::Randomize(int ratio)
 	floorIndex = rand() % NUM_OF_DUNGEON_FLOOR_TYPES;
 	outerWallIndex = 1 + (rand() % (NUM_OF_DUNGEON_WALL_TYPES-1));
 	int wIndex     = 1 + (rand() % (NUM_OF_DUNGEON_WALL_TYPES-1));
-
+	if (bboServer->remove_geo_walls) // if we are removing the walls.
+		wIndex = 0;					 // set it to zero
 	for (int i = 0; i < width * height; ++i)
 	{
 		if (rand() % ratio)
@@ -217,6 +263,11 @@ void DungeonMap::Save(FILE *fp)
 			lineBreak = 0;
 		}
 	}
+	if (this->specialFlags == SPECIAL_DUNGEON_MODERATED)
+	{
+		return;  // no static monsters or master info, so just skip it
+		         // may have other stuff to save in the future, but for now, nothing.
+	}
 	// save non-wandering monsters
 	BBOSMob *curMob = (BBOSMob *) mobList->GetFirst(0,0,1000);
 	while (curMob)
@@ -224,7 +275,7 @@ void DungeonMap::Save(FILE *fp)
 		if (SMOB_MONSTER == curMob->WhatAmI())
 		{
 			BBOSMonster *monster = (BBOSMonster *) curMob;
-			if (!monster->isWandering)
+			if (!monster->isWandering && !monster->isPossessed)
 			{
 				fprintf(fp,"MONSTER %d %d %d %d\n", 
 					     monster->type, monster->subType, 
@@ -463,7 +514,7 @@ int DungeonMap::CanMove(int srcX, int srcY, int dstX, int dstY)
 	int dist = abs(dstX - srcX) + abs(dstY - srcY);
 	if (dist > 1)
 	{
-
+		
 	}
 	return TRUE;
 }
@@ -506,12 +557,53 @@ void DungeonMap::DoChestDrop(BBOSChest *chest)
 		InvGeoPart *exIn = (InvGeoPart *)iObject->extra;
 		exIn->type     = 1; // heart gem
 		exIn->power    = 1 + da;
-
+		
 		iObject->mass = 0.0f;
 		iObject->value = 400 + da * 100;
 		iObject->amount = 1;
 		inv->AddItemSorted(iObject);
+		// check all players for resumers, and delete them.
+		// get first avatar in the dungeon.
+		BBOSAvatar *dungeonperson = (BBOSAvatar *) avatars->First(); 
+		while (dungeonperson)
+		{
+			InventoryObject *io; // define inventoryobject
+			// clear from workbench
+			io = (InventoryObject *)dungeonperson->charInfoArray[((BBOSAvatar *)dungeonperson)->curCharacterIndex].workbench->objects.First();
+			while (io)
+			{
+				if (INVOBJ_EARTHKEY_RESUME == io->type)
+				{
+					dungeonperson->charInfoArray[((BBOSAvatar *)dungeonperson)->curCharacterIndex].workbench->objects.Remove(io);
+					delete io;
+				}
+				io = (InventoryObject *)dungeonperson->charInfoArray[((BBOSAvatar *)dungeonperson)->curCharacterIndex].workbench->objects.Next();
+			}
+			// clear from inventory
+			io = (InventoryObject *)dungeonperson->charInfoArray[((BBOSAvatar *)dungeonperson)->curCharacterIndex].inventory->objects.First();
+			while (io)
+			{
+				if (INVOBJ_EARTHKEY_RESUME == io->type)
+				{
+					dungeonperson->charInfoArray[((BBOSAvatar *)dungeonperson)->curCharacterIndex].inventory->objects.Remove(io);
+					delete io;
+				}
+				io = (InventoryObject *)dungeonperson->charInfoArray[((BBOSAvatar *)dungeonperson)->curCharacterIndex].inventory->objects.Next();
+			}
+			// clear from wielded area
+			io = (InventoryObject *)dungeonperson->charInfoArray[((BBOSAvatar *)dungeonperson)->curCharacterIndex].wield->objects.First();
+			while (io)
+			{
+				if (INVOBJ_EARTHKEY_RESUME == io->type)
+				{
+					dungeonperson->charInfoArray[((BBOSAvatar *)dungeonperson)->curCharacterIndex].wield->objects.Remove(io);
+					delete io;
+				}
+				io = (InventoryObject *)dungeonperson->charInfoArray[((BBOSAvatar *)dungeonperson)->curCharacterIndex].wield->objects.Next();
+			}
+			dungeonperson = (BBOSAvatar *)avatars->Next();
 
+		}
 		// possibly add a depth plaque
 		int curDepth = tempPower/5;
 		curDepth = curDepth * 5 + 20;
@@ -554,11 +646,79 @@ void DungeonMap::DoChestDrop(BBOSChest *chest)
 			fclose(source);
 		}
 	}
+	else if (SPECIAL_DUNGEON_DOOMTOWER & specialFlags)
+	{
+		tempPower++;
+		int da = (int)tempPower;
+		InventoryObject *iObject;
+		sprintf(tempText, "Warp to level %d.", da);
+		iObject = new InventoryObject(
+			INVOBJ_DOOMKEY, 0, tempText);
+		InvDoomKey *exIn = (InvDoomKey *)iObject->extra;
+		exIn->power = tempPower;
+
+		iObject->mass = 0.0f;
+		iObject->value = 1;
+		iObject->amount = 1;
+		exIn->width = sqrt(exIn->power) / 5;
+		exIn->width = exIn->width * 5 + 10;
+		if (exIn->width < 10)
+			exIn->width = 10;
+
+		exIn->height = sqrt((exIn->power*0.8f)) / 5;
+		exIn->height = exIn->height * 5 + 10;
+		if (exIn->height < 10)
+			exIn->height = 10;
+
+		inv->AddItemSorted(iObject);
+
+		int curDepth = tempPower-1;
+		curDepth = curDepth;
+		int lastDepth = 1;
+		FILE *fp = fopen("deepestDoomKey.dat", "r");
+		if (fp)
+		{
+			fscanf(fp, "%d", &lastDepth);
+			fclose(fp);
+		}
+
+		// add cups
+		if (lastDepth < curDepth)
+		{
+			sprintf(tempText, "First to level %d cup", curDepth);
+			iObject = new InventoryObject(INVOBJ_SIMPLE, 0, tempText);
+			iObject->mass = 1.0f;
+			iObject->value = 100 * curDepth;
+			iObject->amount = 1;
+			inv->AddItemSorted(iObject);
+
+			FILE *fp = fopen("deepestdoomKey.dat", "w");
+			if (fp)
+			{
+				fprintf(fp, "%d", curDepth);
+				fclose(fp);
+			}
+
+			FILE *source = fopen("depthCupLog3.txt", "a");
+
+			/* Display operating system-style date and time. */
+			_strdate(tempText);
+			fprintf(source, "%s, ", tempText);
+			_strtime(tempText);
+			fprintf(source, "%s, ", tempText);
+
+			fprintf(source, "%d, %d\n", curDepth, name);
+			fclose(source);
+		}
+
+
+	}
+
 	else
 	{
 		int count = dungeonRating + (rand() % 3) + 1;
-		if (0 == masterName[0])
-			count = 1;
+//		if (0 == masterName[0])
+//			count = 1;
 
 		for (int i = 0; i < count; ++i)
 		{
@@ -788,8 +948,16 @@ int DungeonMap::ForceDungeonContiguous(void)
 		{
 			if (-1 == pathMap[width * y + x]) // unconnected state
 			{
-				leftWall[y * width + x] = 0;
-				topWall [y * width + x] = 0;
+				if (leftWall[y * width + x] > 0)
+				{
+					leftWall[y * width + x] = 0;
+					NumberOfWalls-- ;
+				}
+				if (topWall[y * width + x] > 0)
+				{
+					topWall[y * width + x] = 0;
+					NumberOfWalls--;
+				}
 				return 0;
 			}
 		}

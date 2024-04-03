@@ -30,6 +30,7 @@ ArmyHalloween::ArmyHalloween(SharedSpace *s, int centerX, int centerY, int sX, i
 	am->subType = 0;
 	am->targetX = centerX;
 	am->targetY = centerY;
+
 	atEase.Append(am);
 
 	// add leutenants
@@ -105,7 +106,7 @@ BBOSMonster *ArmyHalloween::MakeSpecialMonster(ArmyMember *curMember)
 		iObject->amount = 2;
 		UpdateTotem(iObject);
 		monster->inventory->objects.Append(iObject);
-
+		monster->tamingcounter = 1000;		// not tamable
 		return monster;
 	}
 
@@ -143,6 +144,7 @@ BBOSMonster *ArmyHalloween::MakeSpecialMonster(ArmyMember *curMember)
 			UpdateTotem(iObject);
 			monster->inventory->objects.Append(iObject);
 		}
+		monster->tamingcounter = 1000;		// not tamable
 		return monster;
 	}
 

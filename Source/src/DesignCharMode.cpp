@@ -24,7 +24,7 @@
 #include "simpleMessageMode.h"
 #include "groundTestMode.h"
 
-#include "BBOServer.h"
+// #include "BBOServer.h"
 #include ".\network\client.h"
 #include "avatarTexture.h"
 #include "particle2.h"
@@ -54,15 +54,18 @@ enum
 	DCM_BUTTON_PHYSICAL,
 	DCM_BUTTON_MAGICAL,
 	DCM_BUTTON_CREATIVE,
+	DCM_BUTTON_BEAST,
 	DCM_BUTTON_EXTRA,
 
 	DCM_BUTTON_PHYSICAL_MORE,
 	DCM_BUTTON_MAGICAL_MORE,
 	DCM_BUTTON_CREATIVE_MORE,
+	DCM_BUTTON_BEAST_MORE,
 
 	DCM_BUTTON_PHYSICAL_LESS,
 	DCM_BUTTON_MAGICAL_LESS,
 	DCM_BUTTON_CREATIVE_LESS,
+	DCM_BUTTON_BEAST_LESS,
 
 	DCM_BUTTON_DESCRIPTION,
 	DCM_BUTTON_TEXT
@@ -70,7 +73,7 @@ enum
 
 const int CLOTHES_CHANGE_SHIFT = 150;
 
-extern BBOServer *server;
+// extern BBOServer *server;
 extern Client *	lclient;
 
 extern int playerAvatarID;
@@ -176,8 +179,12 @@ int FAR PASCAL DesignCharModeProcess(UIRect *curUIRect, int type, long x, short 
 			tBox->SetText("This is your current Creative\nrating.  This number defines how\nwell you can craft things\nlike swords and explosives.");
 			break;
 
+		case DCM_BUTTON_BEAST:
+			tBox->SetText("This is your current Beast\nrating.  This number defines how\nwell you can be a\nBeastmaster. ");
+			break;
+
 		case DCM_BUTTON_EXTRA:
-			tBox->SetText("These are your unassigned rating points.\n\nBe sure to add all of your points\nto your Physical, Magical,\nand Creative ratings.");
+			tBox->SetText("These are your unassigned rating points.\n\nBe sure to add all of your points\nto your stats.");
 			break;
 
 
@@ -193,6 +200,10 @@ int FAR PASCAL DesignCharModeProcess(UIRect *curUIRect, int type, long x, short 
 			tBox->SetText("Click to add one free point\nto your Magical rating.\n\nCharacters with high Magical can\nmake better magic totems, and tame\nmore powerful pets.\n(less than 4, and you\ncan't have ANY pets.)");
 			break;
 
+		case DCM_BUTTON_BEAST_MORE:
+			tBox->SetText("Click to add one free point\nto your Beast rating.\n\nCharacters with 10 Beast can\nbe a Beastmaster.\n(less than 10, and you\ncan't be one.)");
+			break;
+
 
 		case DCM_BUTTON_PHYSICAL_LESS:
 			tBox->SetText("Click to remove one point\nfrom your Physical rating.\n\nCharacters with low Physical\nhave a hard time battling monsters,\nand need to focus on making and\nselling things to make money.");
@@ -204,6 +215,9 @@ int FAR PASCAL DesignCharModeProcess(UIRect *curUIRect, int type, long x, short 
 
 		case DCM_BUTTON_CREATIVE_LESS:
 			tBox->SetText("Click to remove one point\nfrom your Creative rating.\n\nCharacters with low Creative\nhave a hard time making\nswords and explosives.");
+			break;
+		case DCM_BUTTON_BEAST_LESS:
+			tBox->SetText("Click to remove one point\nfrom your Beast rating.\n\nCharacters with 10 Beast can\nbe a Beastmaster.\n(less than 10, and you\ncan't be one.)");
 			break;
 
 		}
@@ -593,18 +607,33 @@ int FAR PASCAL DesignCharModeProcess(UIRect *curUIRect, int type, long x, short 
 		}
 		break;
 
-	case DCM_BUTTON_CREATIVE_MORE :
-      if (UIRECT_MOUSE_LUP == type)
+	case DCM_BUTTON_CREATIVE_MORE:
+		if (UIRECT_MOUSE_LUP == type)
 		{
 			button1Sound->PlayNo3D();
-			curDesignCharMode->UpdateStats(DCM_BUTTON_CREATIVE,1);
+			curDesignCharMode->UpdateStats(DCM_BUTTON_CREATIVE, 1);
 		}
 		break;
-	case DCM_BUTTON_CREATIVE_LESS :
-      if (UIRECT_MOUSE_LUP == type)
+	case DCM_BUTTON_CREATIVE_LESS:
+		if (UIRECT_MOUSE_LUP == type)
 		{
 			button1Sound->PlayNo3D();
-			curDesignCharMode->UpdateStats(DCM_BUTTON_CREATIVE,-1);
+			curDesignCharMode->UpdateStats(DCM_BUTTON_CREATIVE, -1);
+		}
+		break;
+
+	case DCM_BUTTON_BEAST_MORE:
+		if (UIRECT_MOUSE_LUP == type)
+		{
+			button1Sound->PlayNo3D();
+			curDesignCharMode->UpdateStats(DCM_BUTTON_BEAST, 1);
+		}
+		break;
+	case DCM_BUTTON_BEAST_LESS:
+		if (UIRECT_MOUSE_LUP == type)
+		{
+			button1Sound->PlayNo3D();
+			curDesignCharMode->UpdateStats(DCM_BUTTON_BEAST, -1);
 		}
 		break;
 
@@ -910,7 +939,7 @@ int DesignCharMode::Activate(void) // do this when the mode becomes the forgroun
 	if (0 == WhatAmI())
 	{
 		// statistics
-		int statBaseY = puma->ScreenH() - 140;
+		int statBaseY = puma->ScreenH() - 150;
 		//********
 		tBox = new UIRectTextBox(DCM_BUTTON_TEXT, puma->ScreenW()*statYCoeff, statBaseY + 0  ,puma->ScreenW()*statYCoeff + 100, statBaseY + 20);
 		tBox->process = DesignCharModeProcess;
@@ -990,34 +1019,68 @@ int DesignCharMode::Activate(void) // do this when the mode becomes the forgroun
 	//	tBox->fillArt = uiArt;
 		fullWindow->AddChild(tBox);
 
-		tButt = new UIRectTextButton(DCM_BUTTON_CREATIVE_LESS, 
-								puma->ScreenW()*statYCoeff + 100, statBaseY + 40  ,puma->ScreenW()*statYCoeff + 125, statBaseY + 60);
+		tButt = new UIRectTextButton(DCM_BUTTON_CREATIVE_LESS,
+			puma->ScreenW()*statYCoeff + 100, statBaseY + 40, puma->ScreenW()*statYCoeff + 125, statBaseY + 60);
 		tButt->SetText("<");
 		tButt->process = DesignCharModeProcess;
 		tButt->textFlags = D3DFONT_CENTERED | D3DFONT_VERTCENTERED;
 		tButt->fillStyle = UIRECT_WINDOW_STYLE_NOTHING;
-	//	tButt->fillArt = uiArt;
+		//	tButt->fillArt = uiArt;
 		fullWindow->AddChild(tButt);
 
-		tBox = new UIRectTextBox(DCM_BUTTON_CREATIVE, puma->ScreenW()*statYCoeff + 125, statBaseY + 40  ,puma->ScreenW()*statYCoeff + 175, statBaseY + 60);
+		tBox = new UIRectTextBox(DCM_BUTTON_CREATIVE, puma->ScreenW()*statYCoeff + 125, statBaseY + 40, puma->ScreenW()*statYCoeff + 175, statBaseY + 60);
 		tBox->process = DesignCharModeProcess;
 		tBox->SetText("0");
 		tBox->textFlags = D3DFONT_CENTERED | D3DFONT_VERTCENTERED;
 		tBox->fillStyle = UIRECT_WINDOW_STYLE_NOTHING;
-	//	tBox->fillArt = uiArt;
+		//	tBox->fillArt = uiArt;
 		fullWindow->AddChild(tBox);
 
-		tButt = new UIRectTextButton(DCM_BUTTON_CREATIVE_MORE, 
-								puma->ScreenW()*statYCoeff + 175, statBaseY + 40  ,puma->ScreenW()*statYCoeff + 200, statBaseY + 60);
+		tButt = new UIRectTextButton(DCM_BUTTON_CREATIVE_MORE,
+			puma->ScreenW()*statYCoeff + 175, statBaseY + 40, puma->ScreenW()*statYCoeff + 200, statBaseY + 60);
 		tButt->SetText(">");
 		tButt->process = DesignCharModeProcess;
 		tButt->textFlags = D3DFONT_CENTERED | D3DFONT_VERTCENTERED;
 		tButt->fillStyle = UIRECT_WINDOW_STYLE_NOTHING;
-	//	tButt->fillArt = uiArt;
+		//	tButt->fillArt = uiArt;
+		fullWindow->AddChild(tButt);
+
+		tBox = new UIRectTextBox(DCM_BUTTON_TEXT, puma->ScreenW()*statYCoeff, statBaseY + 60, puma->ScreenW()*statYCoeff + 100, statBaseY + 80);
+		tBox->process = DesignCharModeProcess;
+		tBox->SetText("Beast");
+		tBox->textFlags = D3DFONT_CENTERED | D3DFONT_VERTCENTERED;
+		tBox->fillStyle = UIRECT_WINDOW_STYLE_NOTHING;
+		//	tBox->fillArt = uiArt;
+		fullWindow->AddChild(tBox);
+
+		tButt = new UIRectTextButton(DCM_BUTTON_BEAST_LESS,
+			puma->ScreenW()*statYCoeff + 100, statBaseY + 60, puma->ScreenW()*statYCoeff + 125, statBaseY + 80);
+		tButt->SetText("<");
+		tButt->process = DesignCharModeProcess;
+		tButt->textFlags = D3DFONT_CENTERED | D3DFONT_VERTCENTERED;
+		tButt->fillStyle = UIRECT_WINDOW_STYLE_NOTHING;
+		//	tButt->fillArt = uiArt;
+		fullWindow->AddChild(tButt);
+
+		tBox = new UIRectTextBox(DCM_BUTTON_BEAST, puma->ScreenW()*statYCoeff + 125, statBaseY + 60, puma->ScreenW()*statYCoeff + 175, statBaseY + 80);
+		tBox->process = DesignCharModeProcess;
+		tBox->SetText("0");
+		tBox->textFlags = D3DFONT_CENTERED | D3DFONT_VERTCENTERED;
+		tBox->fillStyle = UIRECT_WINDOW_STYLE_NOTHING;
+		//	tBox->fillArt = uiArt;
+		fullWindow->AddChild(tBox);
+
+		tButt = new UIRectTextButton(DCM_BUTTON_BEAST_MORE,
+			puma->ScreenW()*statYCoeff + 175, statBaseY + 60, puma->ScreenW()*statYCoeff + 200, statBaseY + 80);
+		tButt->SetText(">");
+		tButt->process = DesignCharModeProcess;
+		tButt->textFlags = D3DFONT_CENTERED | D3DFONT_VERTCENTERED;
+		tButt->fillStyle = UIRECT_WINDOW_STYLE_NOTHING;
+		//	tButt->fillArt = uiArt;
 		fullWindow->AddChild(tButt);
 
 		//********
-		tBox = new UIRectTextBox(DCM_BUTTON_TEXT, puma->ScreenW()*statYCoeff, statBaseY + 60  ,puma->ScreenW()*statYCoeff + 100, statBaseY + 80);
+		tBox = new UIRectTextBox(DCM_BUTTON_TEXT, puma->ScreenW()*statYCoeff, statBaseY + 80  ,puma->ScreenW()*statYCoeff + 100, statBaseY + 100);
 		tBox->process = DesignCharModeProcess;
 		tBox->SetText("Unassigned");
 		tBox->textFlags = D3DFONT_CENTERED | D3DFONT_VERTCENTERED;
@@ -1025,7 +1088,7 @@ int DesignCharMode::Activate(void) // do this when the mode becomes the forgroun
 	//	tBox->fillArt = uiArt;
 		fullWindow->AddChild(tBox);
 
-		tBox = new UIRectTextBox(DCM_BUTTON_EXTRA, puma->ScreenW()*statYCoeff + 125, statBaseY + 60  ,puma->ScreenW()*statYCoeff + 175, statBaseY + 80);
+		tBox = new UIRectTextBox(DCM_BUTTON_EXTRA, puma->ScreenW()*statYCoeff + 125, statBaseY + 80  ,puma->ScreenW()*statYCoeff + 175, statBaseY + 100);
 		tBox->process = DesignCharModeProcess;
 		tBox->SetText("0");
 		tBox->textFlags = D3DFONT_CENTERED | D3DFONT_VERTCENTERED;
@@ -1117,9 +1180,13 @@ int DesignCharMode::Tick(void)
 	long total = 
 		statsToChange->physical +
 		statsToChange->magical +
-		statsToChange->creative;
-
-	if (edName && edName->text[0] && 12 == total)
+		statsToChange->creative +
+		statsToChange->beast;
+	if ((statsToChange->beast > 1) && (statsToChange->beast < 10))
+	{
+		tButt->isDisabled = TRUE;
+	}
+	else if (edName && edName->text[0] && 13 == total)
 	{
 		tButt->isDisabled = FALSE;
 	}
@@ -1418,13 +1485,14 @@ void DesignCharMode::UpdateStats(int type, int change)
 	long total = 
 		statsToChange->physical +
 		statsToChange->magical +
-		statsToChange->creative;
+		statsToChange->creative +
+		statsToChange->beast;
 
 	// make any changes  ************
 	switch (type)
 	{
 	case DCM_BUTTON_PHYSICAL:
-		if (total + change <= 12)
+		if (total + change <= 13)
 		{
 			statsToChange->physical += change;
 			if (statsToChange->physical < 1)
@@ -1433,7 +1501,7 @@ void DesignCharMode::UpdateStats(int type, int change)
 		break;
 
 	case DCM_BUTTON_MAGICAL	:
-		if (total + change <= 12)
+		if (total + change <= 13)
 		{
 			statsToChange->magical += change;
 			if (statsToChange->magical < 1)
@@ -1442,11 +1510,20 @@ void DesignCharMode::UpdateStats(int type, int change)
 		break;
 
 	case DCM_BUTTON_CREATIVE:
-		if (total + change <= 12)
+		if (total + change <= 13)
 		{
 			statsToChange->creative += change;
 			if (statsToChange->creative < 1)
-				 statsToChange->creative = 1;
+				statsToChange->creative = 1;
+		}
+		break;
+
+	case DCM_BUTTON_BEAST:
+		if (total + change <= 13)
+		{
+			statsToChange->beast += change;
+			if (statsToChange->beast < 1)
+				statsToChange->beast = 1;
 		}
 		break;
 
@@ -1463,19 +1540,25 @@ void DesignCharMode::UpdateStats(int type, int change)
 	sprintf(tempText,"%d",statsToChange->magical);
 	tBox->SetText(tempText);
 
-	tBox = (UIRectTextBox *) fullWindow->childRectList.Find(DCM_BUTTON_CREATIVE);
+	tBox = (UIRectTextBox *)fullWindow->childRectList.Find(DCM_BUTTON_CREATIVE);
 	tBox->process = DesignCharModeProcess;
-	sprintf(tempText,"%d",statsToChange->creative);
+	sprintf(tempText, "%d", statsToChange->creative);
+	tBox->SetText(tempText);
+
+	tBox = (UIRectTextBox *)fullWindow->childRectList.Find(DCM_BUTTON_BEAST);
+	tBox->process = DesignCharModeProcess;
+	sprintf(tempText, "%d", statsToChange->beast);
 	tBox->SetText(tempText);
 
 	total = 
 		statsToChange->physical +
 		statsToChange->magical +
-		statsToChange->creative;
+		statsToChange->creative +
+		statsToChange->beast;
 
 	tBox = (UIRectTextBox *) fullWindow->childRectList.Find(DCM_BUTTON_EXTRA);
 	tBox->process = DesignCharModeProcess;
-	sprintf(tempText,"%d",12 - total);
+	sprintf(tempText,"%d",13 - total);
 	tBox->SetText(tempText);
 }
 

@@ -9,7 +9,6 @@
 #include ".\network\NetWorldMessages.h"
 #include "ground-map.h"
 #include "tower-map.h"
-
 class BBOSAvatar;
 class BBOSMonster;
 class BBOSMob;
@@ -50,12 +49,13 @@ public:
 
 	BBOServer(int useIOCP = TRUE);
 	virtual ~BBOServer();
-
+	int UnicornLocations[6][2];
 	void Tick();
 	void HandleMessages(void);
 	void TransferAvatar(int intoWorld, int handle);
 	BBOSAvatar * FindAvatar(int id, SharedSpace **sp);
 	BBOSAvatar * FindAvatar(BBOSMob *mobPtr, SharedSpace **sp);
+	BBOSAvatar * FindAvatarNotInMySquare(BBOSAvatar *mobPtr, SharedSpace **ss, SharedSpace **sp);
 	BBOSAvatar * FindAvatar(char *name, char *password, SharedSpace **sp);
 	BBOSAvatar * FindAvatarByAvatarName(char *avatarName, SharedSpace **sp);
 	BBOSAvatar * FindAvatarByStringName(char *string, int &length, SharedSpace **retSpace);
@@ -70,10 +70,11 @@ public:
 									  long amount = 1, int isGiving = TRUE);
 	int  ShiftItem(BBOSAvatar *avatar, MessInventoryChange *inventoryChangePtr);
 	void TransferAmount(InventoryObject *io, Inventory *inv, Inventory *partner, long amount);
+	void TransferAmountCheat(InventoryObject *io, Inventory *inv, Inventory *partner, long amount);
 	void SetWield(int isWielding, InventoryObject *iObject, Inventory *inventory);
 	void HandleCombine(BBOSAvatar *avatar, char *skillName);
 //	void DoMonsterDrop(Inventory *inv, BBOSMonster *monster);
-
+	
 	void TellClientAboutInventory(BBOSAvatar *avatar, int type);
 
 	void TryToMoveAvatar(int fromSocket, MessAvatarMoveRequest *avMoveReqPtr);
@@ -132,6 +133,8 @@ public:
 											  SharedSpace *sp,BBOSTree *t);
 	void CreateDemonPrince(SharedSpace *ss, BBOSAvatar *curAvatar, QuestPart *qt, char *tempText2);
 	void HandleEarthKeyUse(BBOSAvatar *ca, InvEarthKey *iek, SharedSpace *ss);
+	void HandleEarthKeyResumeUse(BBOSAvatar *ca, InvEarthKey *iek, SharedSpace *ss);
+	void HandleDoomKeyUse(BBOSAvatar *ca, InvDoomKey *iek, SharedSpace *ss);
 
 	void AddWarpPair(SharedSpace *s1, int x1, int y1,
 		  				  SharedSpace *s2, int x2, int y2, 
@@ -147,9 +150,23 @@ public:
 	DWORD testTime, dungeonUpdateTime, lastConnectTime, lastGraveyardTime, 
 		   tenSecondTime, dayTimeCounter, smasherCounter, labyMapTime;
 	int errorContactVal;
+	int DelayedStartDone;
 	int IOCPFlag;
+	int enable_cheating;
+	int enable_wall_breaking;
+	int remove_geo_walls;
+	int possessed_monsters_move;
+	int use_infinity;
+	int infinite_supply;
+	int combat_exp_multiplier;
+	int smith_exp_multiplier;
+	int bombing_exp_multiplier;
+	int geomancy_exp_multiplier;
+	int ts_exp_multiplier;
+	int magic_exp_multiplier;
+	int mastery_exp_multiplier;
 
-//	GroundMap *map;
+	//	GroundMap *map;
 	LongTime countDownTime;
 	int pleaseKillMe, weatherState;
 

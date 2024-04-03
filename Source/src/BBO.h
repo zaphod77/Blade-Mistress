@@ -22,7 +22,7 @@ const int NUM_OF_SLOTS_PER_SPACE = 28;
 
 const int NUM_OF_TOWNS = 24;
 
-const int NUM_OF_MONSTERS = 29;
+const int NUM_OF_MONSTERS = 34;
 const int NUM_OF_MONSTER_SUBTYPES = 6;
 
 const int NUM_OF_DUNGEON_WALL_TYPES  = 11; // 0 = open, no wall
@@ -81,6 +81,9 @@ enum
 	SMOB_GROUND_EFFECT,
 	SMOB_ROPENTERANCE,
 	SMOB_CASTLE,
+	SMOB_CTF_TOKEN,
+	SMOB_PLAYERMERCHANT,
+	SMOB_MALL_DIRECTOR,
 	SMOB_MAX
 };
 
@@ -115,6 +118,8 @@ enum
 	REALM_ID_DRAGONS,
 	REALM_ID_LAB1,
 	REALM_ID_LAB2,
+	REALM_ID_LAB3,
+	REALM_ID_TEST,
 	REALM_ID_MAX
 };
 
@@ -144,6 +149,14 @@ enum
 	BLADE_TYPE_CHAOS  = 3,
 	BLADE_TYPE_CLAWS  = 4,
 	BLADE_TYPE_DOUBLE = 5,
+	BLADE_TYPE_SCYTHE = 6,
+	BLADE_TYPE_BLIND_SCYTHE = 7,
+	BLADE_TYPE_SLOW_SCYTHE = 8,
+	BLADE_TYPE_POISON_SCYTHE =9,
+	BLADE_TYPE_STUN_SCYTHE = 10,
+	BLADE_TYPE_TANGLE_SCYTHE = 11,
+	BLADE_TYPE_SUMMON_SCYTHE = 12,
+	BLADE_TYPE_TAME_SCYTHE = 13,
 	BLADE_TYPE_STAFF1 = 128
 };
 
@@ -264,6 +277,8 @@ enum
 	MONSTER_EFFECT_TYPE_WONDER,
 	MONSTER_EFFECT_STUN,
 	MONSTER_EFFECT_BIND,
+	MONSTER_EFFECT_RESIST_LOWER,
+	MONSTER_EFFECT_MORE_LOOT,
 	MONSTER_EFFECT_TYPE_NUM
 };
 
@@ -288,18 +303,19 @@ const unsigned long INFO_FLAGS_HITS       = 0x0001;
 const unsigned long INFO_FLAGS_MISSES     = 0x0002;
 const unsigned long INFO_FLAGS_LOOT_TAKEN = 0x0004;
 const unsigned long INFO_FLAGS_ANNOUNCE   = 0x0008;
+const unsigned long INFO_FLAGS_SHOWSIMPLE = 0x0010;
 
 
 extern TownRecord townList[NUM_OF_TOWNS];
 extern BladeRecord bladeList[6];
-extern BladeRecord katanaList[3], clawList[3], bladestaffList[3], chaosList[3], maceList[3];
+extern BladeRecord katanaList[3], clawList[3], bladestaffList[3], chaosList[3], maceList[3], scytheList[6];
 extern char magicNameList[MAGIC_MAX][12];
 extern int greatTreePos[MAGIC_MAX][2];
 
-extern char  ingotNameList[11][19];
-extern float ingotPowerList[11];
-extern long  ingotValueList[11];
-extern int   ingotRGBList[11][3];
+extern char  ingotNameList[15][19];
+extern float ingotPowerList[15];
+extern long  ingotValueList[15];
+extern int   ingotRGBList[15][3];
 
 extern DragonRecord dragonInfo[DRAGON_QUALITY_NUM][DRAGON_TYPE_NUM];
 
@@ -313,7 +329,7 @@ extern int   grassDensity;
 extern void  SaveOptions(void);
 extern void  LoadOptions(void);
 
-extern char ageTextArray[6][15];
+extern char ageTextArray[15][15];
 extern int CanHaveROP(int age, int clevel);
 extern void FillBladeDescMessage(MessBladeDesc *mess, InventoryObject *weapon, BBOSAvatar *av);
 
