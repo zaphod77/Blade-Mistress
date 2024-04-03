@@ -1,0 +1,135 @@
+Autolog for BMO v2.700000,  04/21/22, 12:48:33
+
+nvldumd.dll
+NVIDIA GeForce GTX 1060 3GB
+Desktop is 1920x1080, 60hz, Format 22
+   Mode: 0640x0480, 0060hz, Format 022
+   Mode: 0640x0480, 0072hz, Format 022
+   Mode: 0640x0480, 0075hz, Format 022
+   Mode: 0720x0480, 0056hz, Format 022
+   Mode: 0720x0480, 0060hz, Format 022
+   Mode: 0720x0480, 0072hz, Format 022
+   Mode: 0720x0480, 0075hz, Format 022
+   Mode: 0720x0576, 0056hz, Format 022
+   Mode: 0720x0576, 0060hz, Format 022
+   Mode: 0720x0576, 0072hz, Format 022
+   Mode: 0720x0576, 0075hz, Format 022
+   Mode: 0800x0600, 0056hz, Format 022
+   Mode: 0800x0600, 0060hz, Format 022
+   Mode: 0800x0600, 0072hz, Format 022
+   Mode: 0800x0600, 0075hz, Format 022
+   Mode: 1024x0768, 0060hz, Format 022
+   Mode: 1024x0768, 0070hz, Format 022
+   Mode: 1024x0768, 0075hz, Format 022
+   Mode: 1152x0864, 0075hz, Format 022
+   Mode: 1280x0720, 0060hz, Format 022
+   Mode: 1280x0768, 0060hz, Format 022
+   Mode: 1280x0800, 0060hz, Format 022
+   Mode: 1280x0960, 0060hz, Format 022
+   Mode: 1280x1024, 0060hz, Format 022
+   Mode: 1280x1024, 0075hz, Format 022
+   Mode: 1360x0768, 0060hz, Format 022
+   Mode: 1366x0768, 0060hz, Format 022
+   Mode: 1440x0900, 0060hz, Format 022
+   Mode: 1600x0900, 0059hz, Format 022
+   Mode: 1600x0900, 0060hz, Format 022
+   Mode: 1600x1200, 0060hz, Format 022
+   Mode: 1680x1050, 0059hz, Format 022
+   Mode: 1680x1050, 0060hz, Format 022
+   Mode: 1920x1080, 0060hz, Format 022
+      ************Device: HAL
+      Valid Format: 22
+      ***Windowed mode is possible
+      ***Windowed mode is possible for current desktop
+      D3DCREATE_HARDWARE_VERTEXPROCESSING
+      Depth Stencil Format 80
+
+      So valid modes for this device are:
+
+      Mode: 0640x0480, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 0720x0480, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 0720x0576, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 0800x0600, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1024x0768, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1152x0864, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1280x0720, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1280x0768, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1280x0800, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1280x0960, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1280x1024, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1360x0768, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1366x0768, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1440x0900, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1600x0900, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1600x1200, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1680x1050, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1920x1080, Screen Format 022, Stencil Format 080, behavior flags 40
+      ************Device: REF
+      Valid Format: 22
+      D3DCREATE_HARDWARE_VERTEXPROCESSING
+      Depth Stencil Format 80
+
+      So valid modes for this device are:
+
+      Mode: 0640x0480, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 0720x0480, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 0720x0576, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 0800x0600, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1024x0768, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1152x0864, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1280x0720, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1280x0768, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1280x0800, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1280x0960, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1280x1024, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1360x0768, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1366x0768, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1440x0900, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1600x0900, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1600x1200, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1680x1050, Screen Format 022, Stencil Format 080, behavior flags 40
+      Mode: 1920x1080, Screen Format 022, Stencil Format 080, behavior flags 40
+VideoDataObject vertList creation
+success.
+PumaMesh::LoadCompressed dat\fr-wall.MECPumaMesh::LoadTexture dat\wall.png
+VideoDataObject bitmap creation
+PumaMesh::LoadCompressed dat\fr-rug.MECPumaMesh::LoadTexture dat\fr-rug.png
+VideoDataObject bitmap creation
+PumaMesh::LoadCompressed dat\fr-cstick.MECPumaMesh::LoadTexture dat\gold.png
+VideoDataObject bitmap creation
+PumaMesh::LoadCompressed dat\fr-candle.MECPumaMesh::LoadTexture dat\candle.png
+VideoDataObject bitmap creation
+PumaMesh::LoadCompressed dat\fr-back.MECPumaMesh::LoadTexture dat\fr-back.png
+VideoDataObject bitmap creation
+PumaMesh::LoadCompressed dat\fr-drapes.MECPumaMesh::LoadTexture dat\curtain.png
+VideoDataObject bitmap creation
+PumaMesh::LoadCompressed dat\fr-door.MECPumaMesh::LoadTexture dat\door.png
+VideoDataObject bitmap creation
+PumaMesh::LoadCompressed dat\fr-arms.MECPumaMesh::LoadTexture dat\weapons.png
+VideoDataObject bitmap creation
+loading soundManager: 133578416
+loading sound: dat\openSong.wav
+sound ptr: 0
+loading sound: dat\button1.wav
+sound ptr: 0
+loading sound: dat\button2.wav
+sound ptr: 0
+VideoDataObject bitmap creation
+FirstOptionMode::Activate ********************
+VideoDataObject bitmap creation
+VideoDataObject bitmap creation
+VideoDataObject bitmap creation
+VideoDataObject bitmap creation
+VideoDataObject bitmap creation
+VideoDataObject bitmap creation
+VideoDataObject bitmap creation
+VideoDataObject bitmap creation
+VideoDataObject bitmap creation
+VideoDataObject bitmap creation
+VideoDataObject bitmap creation
+VideoDataObject bitmap creation
+VideoDataObject bitmap creation
+VideoDataObject bitmap creation
+VideoDataObject bitmap creation
+VideoDataObject bitmap creation
+VideoDataObject bitmap creation

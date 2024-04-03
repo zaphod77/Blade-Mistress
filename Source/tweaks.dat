@@ -1,0 +1,11 @@
+**** Aggressive Game Design Tweak system 1.0
+****
+**** This file is read every time the program executes, and
+**** is re-written every time the program exits.
+**** You can change the behavior of the program by changing this file.
+**** Only change the first number after the 'ENTRY' keyword.  This is
+**** the floating point value associated with each tweak.
+**** The two numbers after that are the suggested minimum and maximum values.
+**** The description is for the tweak on the line above the description.
+****
+****
