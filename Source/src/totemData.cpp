@@ -19,7 +19,8 @@ char totemTypeName[TOTEM_MAX][12] =
 	{"Phys Stat"},
 	{"Mage Stat"},
 	{"Crea Stat"},
-	{"Lifesteal"}
+	{"Lifesteal"},
+	{"Focus"}
 };
 
 // BEAR, WOLF, EAGLE, SNAKE, FROG, SUN, MOON, TURTLE
@@ -35,7 +36,8 @@ int totemImbueValue[TOTEM_MAX][MAGIC_MAX] =
 	{1000, 1000, 1000, 1000,     1000, 1000, 1000, 1000, 1000},
 	{1000, 1000, 1000, 1000,     1000, 1000, 1000, 1000, 1000},
 	{1000, 1000, 1000, 1000,     1000, 1000, 1000, 1000, 1000},
-	{0, 1, 0, 2,     1, 0, 1, 0, 2}
+	{0, 1, 0, 2,     1, 0, 1, 0, 2},
+	{3, 3, 3, 3,     3, 3, 3, 3, 3}
 };
 
 char totemQualityName[TOTEM_QUALITY_MAX][12] =
@@ -61,7 +63,11 @@ char totemQualityName[TOTEM_QUALITY_MAX][12] =
 	{"Undead"},
 	{"Dragon"},
 	{"Chitin"},
-	{"Lava"}
+	{"Lava"},
+	{"Moon"},
+	{"Star"},
+	{"Sun"},
+	{"Reindeer"}
 };
 
 //******************************************************************************
@@ -79,7 +85,6 @@ void UpdateTotem(InventoryObject *totemObject)
 			 extra->imbue[j] > 10000)
 			extra->imbue[j] = 0;
 	}
-
 	for (int i = 0; i < TOTEM_MAX; ++i)
 	{
 		int dev = 0;

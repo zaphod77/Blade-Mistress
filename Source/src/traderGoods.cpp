@@ -133,7 +133,8 @@ void TraderGoods::Replenish(BBOSNpc *npc)
 	{
 		InventoryObject *i2 = new InventoryObject(iObject->type,0,iObject->WhoAmI());
 		iObject->CopyTo(i2);
-		i2->amount = 100;
+		i2->amount = 50+50*npc->level;
+//		i2->amount = 100;
 		npc->inventory->AddItemSorted(i2);
 		iObject = (InventoryObject *) objects.Next();
 	}

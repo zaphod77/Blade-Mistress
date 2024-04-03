@@ -24,7 +24,7 @@
 
 #include "BBOClient.h"
 
-#include "BBOServer.h"
+// #include "BBOServer.h"
 
 enum 
 {
@@ -38,7 +38,7 @@ enum
 };
 
 //PlasmaTexture *bboClient->groundMap;
-extern BBOServer *server;
+// extern BBOServer *server;
 extern Client *	lclient;
 
 extern BBOClient *bboClient;
@@ -173,7 +173,7 @@ int WikiMode::Activate(void) // do this when the mode becomes the forbboClient->
 //	tButt->fillArt = uiPopUpLongArt;
    fullWindow->AddChild(tButt);
 
-	LoadPage("http://www.blademistress.com/wiki/pmwiki.php");
+	LoadPage("http://www.bmreborn.com/dokuwiki/doku.php");
 
    fullWindow->Arrange();
 
@@ -446,7 +446,7 @@ void WikiMode::LoadPage(char *pageURL)
 		hURL = InternetOpenUrl(
 					hInternetSession,             // session handle
 					pageURL,                      // URL to access
-					NULL, 0, 0, 0);               // defaults
+					NULL, 0, INTERNET_FLAG_RELOAD, 0);               // defaults
 
 		int connectTries = 0;
 		while (!hURL && connectTries < 20)

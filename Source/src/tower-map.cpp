@@ -909,7 +909,7 @@ void TowerMap::ProcessVotes(void)
 				sprintf(logText,"END\n");
 				LogOutput("votelog.txt", logText);
 			}
-			else if (diff < -60 * 24)
+			else if (diff < -60 * 4)
 			{
 				bills[i].type = GUILDBILL_INACTIVE;
 			}

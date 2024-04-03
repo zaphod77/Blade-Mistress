@@ -18,6 +18,7 @@ enum
 	TOTEM_MAGICAL,
 	TOTEM_CREATIVE,
 	TOTEM_LIFESTEAL,
+	TOTEM_FOCUS,
 	TOTEM_MAX
 };
 
@@ -34,7 +35,7 @@ enum
 	IMBUE_RES_MAX
 };
 
-const int TOTEM_QUALITY_MAX = 22;
+const int TOTEM_QUALITY_MAX = 26;
 const int TOTEM_SELLABLE_QUALITY_MAX = 17;
 
 extern void UpdateTotem(InventoryObject *totemObject);

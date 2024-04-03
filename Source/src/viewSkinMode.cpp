@@ -574,7 +574,7 @@ int ViewSkinMode::Activate(void) // do this when the mode becomes the forground 
    // ********** finished building UIRects
 
 	anim = new PumaAnim(0,"AVATAR");
-	anim->LoadCompressed(puma->m_pd3dDevice, "SVFiles\\dragon-stand.anc");
+	anim->LoadCompressed(puma->m_pd3dDevice, "dat\\dragon-stand.anc");
 //	anim->Scale(puma->m_pd3dDevice, 0.6f, 0.6f, 0.6f);
 
 	return(0);

@@ -3,13 +3,14 @@
 #include <windowsx.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "BBOServer.h"
 #include "tokenManager.h"
 #include ".\helper\GeneralUtils.h"
 #include "BBO-Stower.h"
-
-const char* const pszTokenFile = "serverdata\\tokenData.dat";
+#include "BBO-Savatar.h"
+#include "Realm-Map.h"
 
 TokenManager tokenMan;
 
@@ -37,8 +38,8 @@ void TokenManager::Init(void)
 		do
 		{
 			done = TRUE;
-			x[i] = (rand() % 124) + 2;
-			y[i] = (rand() % 124) + 2;
+			x[i] = (rand() % 248) + 3;
+			y[i] = (rand() % 248) + 3;
 
 			for (int j = 0; j < i; ++j)
 			{
@@ -62,7 +63,7 @@ void TokenManager::Tick(void)
 		if (towerName[i][0] && now.MinutesDifference(&tokenTimeLeft[i]) <= 0)
 		{
 			SharedSpace *ground = NULL;
-			SharedSpace *tower  = NULL;
+			SharedSpace *tower = NULL;
 			SharedSpace *tempss;
 			tempss = (SharedSpace *) bboServer->spaceList->First();
 			while (tempss)
@@ -76,6 +77,7 @@ void TokenManager::Tick(void)
 				}
 				else if (SPACE_GROUND == tempss->WhatAmI())
 				{
+					if (((GroundMap *)tempss)->type < 1) // only for main ground map
 					ground = tempss;
 				}
 				tempss = (SharedSpace *) bboServer->spaceList->Next();
@@ -155,7 +157,8 @@ void TokenManager::Tick(void)
 			{
 				if (SPACE_GROUND == tempss->WhatAmI())
 				{
-					ground = tempss;
+					if (((GroundMap *)tempss)->type < 1) // only for main ground map
+						ground = tempss;
 				}
 				tempss = (SharedSpace *) bboServer->spaceList->Next();
 			}
@@ -198,7 +201,7 @@ void TokenManager::Tick(void)
 //******************************************************************
 void TokenManager::Save(void)
 {
-	FILE *fp = fopen(pszTokenFile,"w");
+	FILE *fp = fopen("serverdata\\tokenData.dat","w");
 	if (fp)
 	{
 		for (int i = 0; i < MAGIC_MAX; ++i)
@@ -229,7 +232,7 @@ void TokenManager::Load(void)
 {
 	int tempInt;
 
-	FILE *fp = fopen(pszTokenFile,"r");
+	FILE *fp = fopen("serverdata\\tokenData.dat","r");
 	if (fp)
 	{
 		for (int i = 0; i < MAGIC_MAX; ++i)
@@ -257,7 +260,8 @@ void TokenManager::Load(void)
 			if (IsSame("", towerName[i]))
 			{
 				towerName[i][0] = 0;
-				x[i] = y[i] = 205;
+				x[i] = (rand() % 248) + 3;
+				y[i] = (rand() % 248) + 3;
 			}
 			else if (IsCompletelySame(towerName[i],"OUTDOORS"))
 				towerName[i][0] = 0;
@@ -274,7 +278,7 @@ int TokenManager::TokenTypeInSquare(SharedSpace *ss, int tx, int ty)
 
 	for (int i = 0; i < MAGIC_MAX; ++i)
 	{
-		if (SPACE_GROUND == ss->WhatAmI() && !towerName[i][0])
+		if (SPACE_GROUND == ss->WhatAmI() && !towerName[i][0] && ((GroundMap *)ss)->type < 1)
 		{
 			if (tx == x[i] && ty == y[i])
 				return i;
@@ -291,15 +295,16 @@ int TokenManager::TokenTypeInSquare(SharedSpace *ss, int tx, int ty)
 //******************************************************************
 void TokenManager::PlayerEntersSquare(char *playerName, SharedSpace *ss, int tx, int ty)
 {
+	FILE *source;
 	for (int i = 0; i < MAGIC_MAX; ++i)
 	{
-		if (SPACE_GROUND == ss->WhatAmI())
+		if (SPACE_GROUND == ss->WhatAmI() && ((GroundMap *)ss)->type < 1)
 		{
 			if (tx == x[i] && ty == y[i] && !towerName[i][0])
 			{
 				// find out which guild the player belongs to
 				SharedSpace *sx;
-				if (bboServer->FindAvatarInGuild(playerName, &sx) && ((TowerMap *)sx)->enterX > -1)
+				if (((bboServer->FindAvatarByAvatarName(playerName, &sx))->accountType < ACCOUNT_TYPE_ADMIN) && (bboServer->FindAvatarInGuild(playerName, &sx)) && (((TowerMap *)sx)->enterX > -1)) // mods can't get tokens. only players
 				{
 					// remove token from map
 					MessTokenDisappear messMD;
@@ -323,7 +328,8 @@ void TokenManager::PlayerEntersSquare(char *playerName, SharedSpace *ss, int tx,
 					// announce the capture to all
 					MessInfoText infoText;
 					char tempText[1024];
-				  	sprintf(tempText,"** %s has captured the %s token", 
+					char tempText2[1024];
+					sprintf(tempText,"** %s has captured the %s token",
 						     playerName, magicNameList[i]);
 					CopyStringSafely(tempText,1024,infoText.text, MESSINFOTEXTLEN);
 		  			bboServer->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, NULL);
@@ -331,10 +337,20 @@ void TokenManager::PlayerEntersSquare(char *playerName, SharedSpace *ss, int tx,
 						     sx->WhoAmI());
 					CopyStringSafely(tempText,1024,infoText.text, MESSINFOTEXTLEN);
 		  			bboServer->lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, NULL);
-
+					source = fopen("tokencapturelog.txt", "a");
+					/* Display operating system-style date and time. */
+					_strdate(tempText2);
+					fprintf(source, "%s, ", tempText2);
+					_strtime(tempText2);
+					fprintf(source, "%s, ", tempText2);
+					fprintf(source, "** %s has captured the %s token",
+						playerName, magicNameList[i]);
+					fprintf(source, " for her guild, %s!!\n",
+						sx->WhoAmI());
+					fclose(source);
 					// update the data
 					tokenTimeLeft[i].SetToNow();
-					tokenTimeLeft[i].AddMinutes(60 * 30);
+					tokenTimeLeft[i].AddMinutes(60 * 48);
 					x[i] = messMA.x;
 					y[i] = messMA.y;
 					sprintf(towerName[i],sx->WhoAmI());
