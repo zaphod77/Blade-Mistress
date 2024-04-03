@@ -1,0 +1,24 @@
+MAX_LOGINS 5
+ENABLE_TOI 1
+ENABLE_HALLOWEEN 0
+INFINITE_SUPPLY 0
+ENABLE_CHEATING 0
+ENABLE_WALL_BREAKING 1
+REMOVE_GEO_WALLS 0
+COMBAT_EXP_MULTIPLIER 1
+SMITH_EXP_MULTIPLIER 1
+BOMBING_EXP_MULTIPLIER 1
+GEOMANCY_EXP_MULTIPLIER 1
+TS_EXP_MULTIPLIER 1
+MAGIC_EXP_MULTIPLIER 1
+MASTERY_EXP_MULTIPLIER 1
+---end of options---
+MAX_LOGINS controls number of simultaneous logins from the same computer
+ENABLE_TOI: 1 to spawn TOI merchant.
+ENABLE_HALLOWEEN: 1 to turn on halloween event.
+INFINITE_SUPPLY: 1 to make merchants never run out
+ENABLE_CHEATING: 1 to allow lotsa cheating.
+ENABLE_WALL_BREAKING: 1 to allow bombing holes in geo walls.
+REMOVE_GEO_WALLS: 1 to remove all walls from geos.
+xxx_EXP_MULITPLIER: used to give boosts to skill experience. can be changed in game
+			but it won't persist after restart.
