@@ -32,14 +32,17 @@ GroundMap::~GroundMap()
 void GroundMap::InitNew(int w, int h, int eX, int eY)
 {
 	FILE *fp;
-
+	if (w ==0)
 	fp = fopen("dat\\terrain-bytes.raw","rb");
+	else if (w==1)
+		fp = fopen("dat\\terrain2-bytes.raw", "rb");
+
 	fread(map, 1, MAP_SIZE_WIDTH * MAP_SIZE_HEIGHT, fp);
 	fclose(fp);
 
 	sizeX = MAP_SIZE_WIDTH;
 	sizeY = MAP_SIZE_HEIGHT;
-
+	type = w;
 	groundInventory = new Inventory[MAP_SIZE_WIDTH * MAP_SIZE_HEIGHT];
 
 	SharedSpace::InitNew(MAP_SIZE_WIDTH, MAP_SIZE_HEIGHT, 0,0);

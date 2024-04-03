@@ -21,7 +21,7 @@
 
 #include "clientOnly.h"
 
-#include "BBOServer.h"
+// #include "BBOServer.h"
 #include "./network/client.h"
 #include "particle2.h"
 
@@ -32,7 +32,7 @@ enum
 	SMM_BUTTON_TEXT
 };
 
-extern BBOServer *server;
+// extern BBOServer *server;
 extern Client *	lclient;
 
 extern int playerAvatarID;

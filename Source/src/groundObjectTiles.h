@@ -120,7 +120,7 @@ public:
 	GroundObjectTiles(void);
 	GroundObjectTiles(int doid, char *doname);
 	virtual ~GroundObjectTiles();
-	void Init(void);
+	void Init(int submap=0);
 
 	// Operators...
 
@@ -166,6 +166,7 @@ public:
 	void BuildJumble(int x, int y, int objectType);
 
 	int sizeW, sizeH;
+	int submaptype = 0;
 	int ntSizeW, ntSizeH;
 	normalRecord *normalTable;
 	LocationSlots *slotArray;

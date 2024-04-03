@@ -139,7 +139,7 @@ GroundObjectTiles::~GroundObjectTiles()
 }
 
 //***************************************************************************************
-void GroundObjectTiles::Init(void)
+void GroundObjectTiles::Init(int submap)
 {
 	aLog.Log("GroundObjectTiles::Init ");
 
@@ -152,37 +152,73 @@ void GroundObjectTiles::Init(void)
 	forest     = D3DCOLOR_RGBA(  0,128,  0,255) ;
 	deepForest = D3DCOLOR_RGBA(  0,255,  0,255) ;
 	waste      = D3DCOLOR_RGBA(149,111,  7, 255) ;
-
-	if (SUCCEEDED(puma->m_pd3dDevice->CreateImageSurface(128,128, 
-		 D3DFMT_A8R8G8B8, &pTiledGroundInfoSurface[0])))
+	submaptype = submap;
+	if (submap == 0)
 	{
-		D3DXLoadSurfaceFromFile( pTiledGroundInfoSurface[0], 0, 
-			NULL, _T("dat\\terrain-info.png"), NULL, D3DX_FILTER_NONE, 0, 0);
+		if (SUCCEEDED(puma->m_pd3dDevice->CreateImageSurface(128, 128,
+			D3DFMT_A8R8G8B8, &pTiledGroundInfoSurface[0])))
+		{
+			D3DXLoadSurfaceFromFile(pTiledGroundInfoSurface[0], 0,
+				NULL, _T("dat\\terrain-info.png"), NULL, D3DX_FILTER_NONE, 0, 0);
+		}
+
+		if (SUCCEEDED(puma->m_pd3dDevice->CreateImageSurface(128, 128,
+			D3DFMT_A8R8G8B8, &pTiledGroundInfoSurface[1])))
+		{
+			D3DXLoadSurfaceFromFile(pTiledGroundInfoSurface[1], 0,
+				NULL, _T("dat\\terrain-infob.png"), NULL, D3DX_FILTER_NONE, 0, 0);
+		}
+
+		if (SUCCEEDED(puma->m_pd3dDevice->CreateImageSurface(128, 128,
+			D3DFMT_A8R8G8B8, &pTiledGroundInfoSurface[2])))
+		{
+			D3DXLoadSurfaceFromFile(pTiledGroundInfoSurface[2], 0,
+				NULL, _T("dat\\terrain-infoc.png"), NULL, D3DX_FILTER_NONE, 0, 0);
+		}
+
+		if (SUCCEEDED(puma->m_pd3dDevice->CreateImageSurface(128, 128,
+			D3DFMT_A8R8G8B8, &pTiledGroundInfoSurface[3])))
+		{
+			D3DXLoadSurfaceFromFile(pTiledGroundInfoSurface[3], 0,
+				NULL, _T("dat\\terrain-infod.png"), NULL, D3DX_FILTER_NONE, 0, 0);
+		}
 	}
-
-	if (SUCCEEDED(puma->m_pd3dDevice->CreateImageSurface(128,128, 
-		 D3DFMT_A8R8G8B8, &pTiledGroundInfoSurface[1])))
+	else if (submap==1) 
 	{
-		D3DXLoadSurfaceFromFile( pTiledGroundInfoSurface[1], 0, 
-			NULL, _T("dat\\terrain-infob.png"), NULL, D3DX_FILTER_NONE, 0, 0);
-	}
+		if (SUCCEEDED(puma->m_pd3dDevice->CreateImageSurface(128, 128,
+			D3DFMT_A8R8G8B8, &pTiledGroundInfoSurface[0])))
+		{
+			D3DXLoadSurfaceFromFile(pTiledGroundInfoSurface[0], 0,
+				NULL, _T("dat\\terrain2-info.png"), NULL, D3DX_FILTER_NONE, 0, 0);
+		}
 
-	if (SUCCEEDED(puma->m_pd3dDevice->CreateImageSurface(128,128, 
-		 D3DFMT_A8R8G8B8, &pTiledGroundInfoSurface[2])))
-	{
-		D3DXLoadSurfaceFromFile( pTiledGroundInfoSurface[2], 0, 
-			NULL, _T("dat\\terrain-infoc.png"), NULL, D3DX_FILTER_NONE, 0, 0);
-	}
+		if (SUCCEEDED(puma->m_pd3dDevice->CreateImageSurface(128, 128,
+			D3DFMT_A8R8G8B8, &pTiledGroundInfoSurface[1])))
+		{
+			D3DXLoadSurfaceFromFile(pTiledGroundInfoSurface[1], 0,
+				NULL, _T("dat\\terrain2-infob.png"), NULL, D3DX_FILTER_NONE, 0, 0);
+		}
 
-	if (SUCCEEDED(puma->m_pd3dDevice->CreateImageSurface(128,128, 
-		 D3DFMT_A8R8G8B8, &pTiledGroundInfoSurface[3])))
-	{
-		D3DXLoadSurfaceFromFile( pTiledGroundInfoSurface[3], 0, 
-			NULL, _T("dat\\terrain-infod.png"), NULL, D3DX_FILTER_NONE, 0, 0);
+		if (SUCCEEDED(puma->m_pd3dDevice->CreateImageSurface(128, 128,
+			D3DFMT_A8R8G8B8, &pTiledGroundInfoSurface[2])))
+		{
+			D3DXLoadSurfaceFromFile(pTiledGroundInfoSurface[2], 0,
+				NULL, _T("dat\\terrain2-infoc.png"), NULL, D3DX_FILTER_NONE, 0, 0);
+		}
+
+		if (SUCCEEDED(puma->m_pd3dDevice->CreateImageSurface(128, 128,
+			D3DFMT_A8R8G8B8, &pTiledGroundInfoSurface[3])))
+		{
+			D3DXLoadSurfaceFromFile(pTiledGroundInfoSurface[3], 0,
+				NULL, _T("dat\\terrain2-infod.png"), NULL, D3DX_FILTER_NONE, 0, 0);
+		}
 	}
 
 	pt = NULL;
 	pTexture      = NULL;
+	if (slotArray)
+		delete[] slotArray; // delete the slot array if it's there
+
 	slotArray     = NULL;
 	flowerArray   = NULL;
 
@@ -396,11 +432,18 @@ void GroundObjectTiles::Generate(LPDIRECT3DDEVICE8 m_pd3dDevice, int w, int h, u
 	roadExclusionMap = new unsigned char[sizeH * sizeW];
 
 	FILE *fp;
-
-	fp = fopen("dat\\roads-256.raw","rb");
-	fread(roadExclusionMap, 1, sizeH * sizeW, fp);
-	fclose(fp);
-
+	if (submaptype == 0)
+	{
+		fp = fopen("dat\\roads-256.raw", "rb");
+		fread(roadExclusionMap, 1, sizeH * sizeW, fp);
+		fclose(fp);
+	}
+	else if (submaptype==1)
+	{
+		fp = fopen("dat\\roads2-256.raw", "rb");
+		fread(roadExclusionMap, 1, sizeH * sizeW, fp);
+		fclose(fp);
+	}
 	aLog.Log("Done\n");
 
 }
@@ -768,35 +811,37 @@ void GroundObjectTiles::CreateStaticPositions(void)
 	srand(1);
 
 	// add town buildings
-	for (int t = 0; t < NUM_OF_TOWNS; ++t)
+	if (submaptype == 0) // but only in real normal realm
 	{
-		for (int t2 = 0; t2 < townList[t].size * 2; ++t2)
+		for (int t = 0; t < NUM_OF_TOWNS; ++t)
 		{
-			LocationSlots *slot;
-			int x,y;
-			do
+			for (int t2 = 0; t2 < townList[t].size * 2; ++t2)
 			{
-				x = townList[t].x + (rand() % (3 + townList[t].size)) - townList[t].size/2;
-				y = townList[t].y + (rand() % (3 + townList[t].size)) - townList[t].size/2;
-				if (x < 1)
-					x = 1;
-				if (y < 1)
-					y = 1;
-				if (x > 255)
-					x = 255;
-				if (y > 255)
-					y = 255;
-				slot = &(slotArray[y*sizeW+x]);
-			} while ((x == townList[t].x && y == townList[t].y) ||
-						slot->used[NUM_OF_SLOTS_PER_SPACE- 1]> 0 ||
-						roadExclusionMap[y*sizeW+x] > 0);
+				LocationSlots *slot;
+				int x, y;
+				do
+				{
+					x = townList[t].x + (rand() % (3 + townList[t].size)) - townList[t].size / 2;
+					y = townList[t].y + (rand() % (3 + townList[t].size)) - townList[t].size / 2;
+					if (x < 1)
+						x = 1;
+					if (y < 1)
+						y = 1;
+					if (x > 255)
+						x = 255;
+					if (y > 255)
+						y = 255;
+					slot = &(slotArray[y*sizeW + x]);
+				} while ((x == townList[t].x && y == townList[t].y) ||
+					slot->used[NUM_OF_SLOTS_PER_SPACE - 1] > 0 ||
+					roadExclusionMap[y*sizeW + x] > 0);
 
-			slot = &(slotArray[y*sizeW+x]);
-//			slot->used[NUM_OF_SLOTS_PER_SPACE - (rand() % 4) - 1] = SLOT_CABIN + (rand() % 2);
-			slot->used[NUM_OF_SLOTS_PER_SPACE- 1] = SLOT_CABIN + (rand() % 2);
+				slot = &(slotArray[y*sizeW + x]);
+				//			slot->used[NUM_OF_SLOTS_PER_SPACE - (rand() % 4) - 1] = SLOT_CABIN + (rand() % 2);
+				slot->used[NUM_OF_SLOTS_PER_SPACE - 1] = SLOT_CABIN + (rand() % 2);
+			}
 		}
 	}
-
 	OpenTiledGroundInfoTexture();
 
 	for (int y = 0; y < sizeH; ++y)
@@ -908,15 +953,17 @@ void GroundObjectTiles::CreateStaticPositions(void)
 	CloseTiledGroundInfoTexture();
 
 	// add special static items
+	if (submaptype == 0) // only put the rings and graveyards in normal normal realm
+	{
+		BuildRing(230, 53, SLOT_FOREST_TREE1);
+		BuildRing(20, 23, SLOT_COLUMN);
+		BuildRing(179, 164, SLOT_COLUMN);
+		BuildRing(107, 162, SLOT_COLUMN);
 
-	BuildRing(230, 53, SLOT_FOREST_TREE1);
-	BuildRing( 20, 23, SLOT_COLUMN);
-	BuildRing(179,164, SLOT_COLUMN);
-	BuildRing(107,162, SLOT_COLUMN);
-
-	// pet graveyard 58 88 and 70 30
-	BuildJumble(90, 53,SLOT_PETHEADSTONE1);
-	BuildJumble(71,206,SLOT_PETHEADSTONE1);
+		// pet graveyard 58 88 and 70 30
+		BuildJumble(90, 53, SLOT_PETHEADSTONE1);
+		BuildJumble(71, 206, SLOT_PETHEADSTONE1);
+	}
 //	ClearStaticPositionsFor(int x, int y);
 
   // 63 73
@@ -1258,46 +1305,91 @@ void GroundObjectTiles::GenerateTiles(int oX, int oY)
 			src2[3].top += (512 - src.top);
 			dst2[3].top += (512 - src.top);
 		}
+		if (submaptype == 0)
+		{
+			if (src2[0].left < src2[0].right && src2[0].top < src2[0].bottom)
+				D3DXLoadSurfaceFromFile(m_pHeightData, 0, &dst2[0],
+					_T("dat\\terrain-512.png"), &src2[0], D3DX_FILTER_NONE, 0, 0);
+			if (src2[1].left < src2[1].right && src2[1].top < src2[1].bottom)
+			{
+				src2[1].left -= 512;
+				src2[1].right -= 512;
+				D3DXLoadSurfaceFromFile(m_pHeightData, 0, &dst2[1],
+					_T("dat\\terrain-512b.png"), &src2[1], D3DX_FILTER_NONE, 0, 0);
+			}
+			if (src2[2].left < src2[2].right && src2[2].top < src2[2].bottom)
+			{
+				src2[2].top -= 512;
+				src2[2].bottom -= 512;
+				D3DXLoadSurfaceFromFile(m_pHeightData, 0, &dst2[2],
+					_T("dat\\terrain-512c.png"), &src2[2], D3DX_FILTER_NONE, 0, 0);
+			}
+			if (src2[3].left < src2[3].right && src2[3].top < src2[3].bottom)
+			{
+				src2[3].left -= 512;
+				src2[3].right -= 512;
+				src2[3].top -= 512;
+				src2[3].bottom -= 512;
+				D3DXLoadSurfaceFromFile(m_pHeightData, 0, &dst2[3],
+					_T("dat\\terrain-512d.png"), &src2[3], D3DX_FILTER_NONE, 0, 0);
+			}
 
-		if (src2[0].left < src2[0].right && src2[0].top < src2[0].bottom)
-			D3DXLoadSurfaceFromFile( m_pHeightData, 0, &dst2[0], 
-			                        _T("dat\\terrain-512.png"), &src2[0], D3DX_FILTER_NONE, 0, 0);
-		if (src2[1].left < src2[1].right && src2[1].top < src2[1].bottom)
-		{
-			src2[1].left   -= 512;
-			src2[1].right  -= 512;
-			D3DXLoadSurfaceFromFile( m_pHeightData, 0, &dst2[1], 
-			                        _T("dat\\terrain-512b.png"), &src2[1], D3DX_FILTER_NONE, 0, 0);
+			if (src2[0].left < src2[0].right && src2[0].top < src2[0].bottom)
+				D3DXLoadSurfaceFromFile(tileMapRoadData, 0, &dst2[0],
+					_T("dat\\roads-512.png"), &src2[0], D3DX_FILTER_NONE, 0, 0);
+			if (src2[1].left < src2[1].right && src2[1].top < src2[1].bottom)
+				D3DXLoadSurfaceFromFile(tileMapRoadData, 0, &dst2[1],
+					_T("dat\\roads-512b.png"), &src2[1], D3DX_FILTER_NONE, 0, 0);
+			if (src2[2].left < src2[2].right && src2[2].top < src2[2].bottom)
+				D3DXLoadSurfaceFromFile(tileMapRoadData, 0, &dst2[2],
+					_T("dat\\roads-512c.png"), &src2[2], D3DX_FILTER_NONE, 0, 0);
+			if (src2[3].left < src2[3].right && src2[3].top < src2[3].bottom)
+				D3DXLoadSurfaceFromFile(tileMapRoadData, 0, &dst2[3],
+					_T("dat\\roads-512d.png"), &src2[3], D3DX_FILTER_NONE, 0, 0);
 		}
-		if (src2[2].left < src2[2].right && src2[2].top < src2[2].bottom)
+		else if (submaptype==1)
 		{
-			src2[2].top    -= 512;
-			src2[2].bottom -= 512;
-			D3DXLoadSurfaceFromFile( m_pHeightData, 0, &dst2[2], 
-			                        _T("dat\\terrain-512c.png"), &src2[2], D3DX_FILTER_NONE, 0, 0);
-		}
-		if (src2[3].left < src2[3].right && src2[3].top < src2[3].bottom)
-		{
-			src2[3].left   -= 512;
-			src2[3].right  -= 512;
-			src2[3].top    -= 512;
-			src2[3].bottom -= 512;
-			D3DXLoadSurfaceFromFile( m_pHeightData, 0, &dst2[3], 
-			                        _T("dat\\terrain-512d.png"), &src2[3], D3DX_FILTER_NONE, 0, 0);
+			if (src2[0].left < src2[0].right && src2[0].top < src2[0].bottom)
+				D3DXLoadSurfaceFromFile(m_pHeightData, 0, &dst2[0],
+					_T("dat\\terrain2-512.png"), &src2[0], D3DX_FILTER_NONE, 0, 0);
+			if (src2[1].left < src2[1].right && src2[1].top < src2[1].bottom)
+			{
+				src2[1].left -= 512;
+				src2[1].right -= 512;
+				D3DXLoadSurfaceFromFile(m_pHeightData, 0, &dst2[1],
+					_T("dat\\terrain2-512b.png"), &src2[1], D3DX_FILTER_NONE, 0, 0);
+			}
+			if (src2[2].left < src2[2].right && src2[2].top < src2[2].bottom)
+			{
+				src2[2].top -= 512;
+				src2[2].bottom -= 512;
+				D3DXLoadSurfaceFromFile(m_pHeightData, 0, &dst2[2],
+					_T("dat\\terrain2-512c.png"), &src2[2], D3DX_FILTER_NONE, 0, 0);
+			}
+			if (src2[3].left < src2[3].right && src2[3].top < src2[3].bottom)
+			{
+				src2[3].left -= 512;
+				src2[3].right -= 512;
+				src2[3].top -= 512;
+				src2[3].bottom -= 512;
+				D3DXLoadSurfaceFromFile(m_pHeightData, 0, &dst2[3],
+					_T("dat\\terrain2-512d.png"), &src2[3], D3DX_FILTER_NONE, 0, 0);
+			}
+
+			if (src2[0].left < src2[0].right && src2[0].top < src2[0].bottom)
+				D3DXLoadSurfaceFromFile(tileMapRoadData, 0, &dst2[0],
+					_T("dat\\roads2-512.png"), &src2[0], D3DX_FILTER_NONE, 0, 0);
+			if (src2[1].left < src2[1].right && src2[1].top < src2[1].bottom)
+				D3DXLoadSurfaceFromFile(tileMapRoadData, 0, &dst2[1],
+					_T("dat\\roads2-512b.png"), &src2[1], D3DX_FILTER_NONE, 0, 0);
+			if (src2[2].left < src2[2].right && src2[2].top < src2[2].bottom)
+				D3DXLoadSurfaceFromFile(tileMapRoadData, 0, &dst2[2],
+					_T("dat\\roads2-512c.png"), &src2[2], D3DX_FILTER_NONE, 0, 0);
+			if (src2[3].left < src2[3].right && src2[3].top < src2[3].bottom)
+				D3DXLoadSurfaceFromFile(tileMapRoadData, 0, &dst2[3],
+					_T("dat\\roads2-512d.png"), &src2[3], D3DX_FILTER_NONE, 0, 0);
 		}
 
-		if (src2[0].left < src2[0].right && src2[0].top < src2[0].bottom)
-			D3DXLoadSurfaceFromFile( tileMapRoadData, 0, &dst2[0], 
-			                        _T("dat\\roads-512.png"), &src2[0], D3DX_FILTER_NONE, 0, 0);
-		if (src2[1].left < src2[1].right && src2[1].top < src2[1].bottom)
-			D3DXLoadSurfaceFromFile( tileMapRoadData, 0, &dst2[1], 
-			                        _T("dat\\roads-512b.png"), &src2[1], D3DX_FILTER_NONE, 0, 0);
-		if (src2[2].left < src2[2].right && src2[2].top < src2[2].bottom)
-			D3DXLoadSurfaceFromFile( tileMapRoadData, 0, &dst2[2], 
-			                        _T("dat\\roads-512c.png"), &src2[2], D3DX_FILTER_NONE, 0, 0);
-		if (src2[3].left < src2[3].right && src2[3].top < src2[3].bottom)
-			D3DXLoadSurfaceFromFile( tileMapRoadData, 0, &dst2[3], 
-			                        _T("dat\\roads-512d.png"), &src2[3], D3DX_FILTER_NONE, 0, 0);
 	}
 	//
 	// Generate tiles based on the values in the height map

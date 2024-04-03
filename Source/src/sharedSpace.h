@@ -6,21 +6,11 @@
 #include "inventory.h"
 #include "MapList.h"
 #include ".\network\NetWorldMessages.h"
-
+#include "spacetypes.h"
 
 class BBOSAvatar;
 class BBOSMonster;
 
-enum
-{
-	SPACE_GROUND,
-	SPACE_DUNGEON,
-	SPACE_LABYRINTH,
-	SPACE_GUILD,
-	SPACE_REALM,
-	SPACE_MAX
-
-};
 
 
 class SharedSpace : public DataObject
@@ -37,10 +27,10 @@ public:
 	virtual int CanMove(int srcX, int srcY, int dstX, int dstY);
 
 	void SendToEveryoneBut(int handleToExclude, int size, const void *dataPtr);
-	void SendToEveryoneNearBut(int handleToExclude, float x, float y, int size, 
+	void SendToEveryoneNearBut(int handleToExclude, int x, int y, int size, 
 		                        const void *dataPtr, int radius = 5, unsigned long flags = 0);
 	void IgnorableSendToEveryone(BBOSAvatar *srcAvatar, int size, const void *dataPtr);
-	void IgnorableSendToEveryoneNear(BBOSAvatar *srcAvatar, float x, float y, int size, 
+	void IgnorableSendToEveryoneNear(BBOSAvatar *srcAvatar, int x, int y, int size, 
 		                        const void *dataPtr, int radius = 5);
 	void SendToEveryFriend(BBOSAvatar *srcAvatar, int size, const void *dataPtr);
 

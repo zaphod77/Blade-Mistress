@@ -24,8 +24,8 @@
 
 #include "clientOnly.h"
 #include "BBOClient.h"
-#include "BBOServer.h"
-
+#include "spacetypes.h"
+#include "hotkeys.h"
 #include ".\helper\autolog.h"
 
 enum 
@@ -177,23 +177,46 @@ enum
 	GTM_BUTTON_CHANNEL2,
 	GTM_BUTTON_CHANNEL3,
 
-	GTM_BUTTON_CHATLINE_0
+	GTM_BUTTON_CHATLINE_0,
+		GTM_BUTTON_CUSTOM_TITLE,
+		GTM_BUTTON_CUSTOM_EDLINE,
+		GTM_BUTTON_MAX
+
 };
 
 //PlasmaTexture *bboClient->groundMap;
-extern BBOServer *server;
+// extern BBOServer *server;
 extern Client *	lclient;
 
-extern int curMapType, playerIsAdmin;
-
-extern int skillHotKeyArray[19];
+extern int curMapType, playerIsAdmin, playerIsBeastmaster,BeastTagAlong;
+extern long lastRealmID;
+// extern int skillHotKeyArray[20];
 
 extern int POMSezQuit;
 
 BBOClient *bboClient;
 
 char dirSet[17] = "N NWW SWS SEE NE";
-
+int logx1 = 0;
+int logx2 = 0;
+int logx3 = 0;
+int logx4 = 0;
+int logx5 = 0;
+int logx6 = 0;
+int logx7 = 0;
+int logx8 = 0;
+int logx9 = 0;
+int logx10 = 0;
+int logy1 = 0;
+int logy2 = 0;
+int logy3 = 0;
+int logy4 = 0;
+int logy5 = 0;
+int logy6 = 0;
+int logy7 = 0;
+int logy8 = 0;
+int logy9 = 0;
+int logy10 = 0; // check for macros
 //long screenHealth, screenMaxHealth, moveLockoutTimer, monsterHealthLength;
 long moveLockoutTimer;
 int logDoneCounter;
@@ -222,6 +245,7 @@ int FAR PASCAL groundTestModeProcess(UIRect *curUIRect, int type, long x, short 
 	MessWield messWield;
 	MessUnWield messUnWield;
 	MessAvatarAttack messAA;
+	MessStartTame messST;
 	MessAvatarMoveRequest bMoveReq;
 	MessInventoryChange messChange;
 	MessTryCombine messTryCombine;
@@ -330,24 +354,95 @@ int FAR PASCAL groundTestModeProcess(UIRect *curUIRect, int type, long x, short 
 	case GTM_BUTTON_NAMEPET_EDLINE:
 		if (UIRECT_DONE == type)
 		{
-			tEdit = (UIRectEditLine *) curUIRect;
+			tEdit = (UIRectEditLine *)curUIRect;
 			if (strlen(tEdit->text) > 0)
 			{
 				if (bboClient->playerAvatar)
 				{
 					MessPetName messPN;
-					CopyStringSafely(tEdit->text,16,messPN.text,16);
-					lclient->SendMsg(sizeof(messPN),(void *)&messPN);
+					CopyStringSafely(tEdit->text, 16, messPN.text, 16);
+					lclient->SendMsg(sizeof(messPN), (void *)&messPN);
 					button2Sound->PlayNo3D();
 				}
 
-//				MessPlayerChatLine chatMess;
-//				sprintf(chatMess.text,"Giving %d gold!",atoi(tEdit->text));
-//				lclient->SendMsg(sizeof(chatMess),(void *)&chatMess);
+				//				MessPlayerChatLine chatMess;
+				//				sprintf(chatMess.text,"Giving %d gold!",atoi(tEdit->text));
+				//				lclient->SendMsg(sizeof(chatMess),(void *)&chatMess);
 			}
 			tEdit->SetText("");
 			tEdit->hasTypingFocus = FALSE;
 			curgroundTestMode->namePetMode = FALSE;
+			return 1;
+		}
+		break;
+
+	case GTM_BUTTON_CUSTOM_EDLINE:
+		if (UIRECT_DONE == type)
+		{
+			tEdit = (UIRectEditLine *)curUIRect;
+			if (strlen(tEdit->text) > 0)
+			{
+				if (bboClient->playerAvatar)
+				{
+					// check transfercustommode to determine which packet to send. 
+					switch (curgroundTestMode->transfercustommode)
+					{
+					case 1: // give
+							transferRequest.amount = atol(tEdit->text);
+							transferRequest.playerListType = curgroundTestMode->playerListMode;
+							transferRequest.isPlayerInfo = TRUE;
+							transferRequest.ptr = curgroundTestMode->playerInv[curgroundTestMode->selectedIndex].ptr;
+							transferRequest.partner = NULL;
+							lclient->SendMsg(sizeof(transferRequest), (void *)&transferRequest);
+							// curgroundTestMode->RemoveActionButtons();
+							break;
+					case 2: // buy
+						transferRequest.amount = atol(tEdit->text);
+						transferRequest.isPlayerInfo = FALSE;
+						transferRequest.playerListType = curgroundTestMode->playerListMode;
+						transferRequest.ptr = curgroundTestMode->otherInv[curgroundTestMode->selectedIndex].ptr;
+						transferRequest.partner = curgroundTestMode->partnerPtr;
+						lclient->SendMsg(sizeof(transferRequest), (void *)&transferRequest);
+						// curgroundTestMode->RemoveActionButtons();
+						break;
+					case 3: // retract
+						transferRequest.amount = atol(tEdit->text);
+						transferRequest.isPlayerInfo = FALSE;
+						transferRequest.playerListType = curgroundTestMode->playerListMode;
+						transferRequest.ptr = curgroundTestMode->yourInv[curgroundTestMode->selectedIndex].ptr;
+						transferRequest.partner = curgroundTestMode->partnerPtr;
+						lclient->SendMsg(sizeof(transferRequest), (void *)&transferRequest);
+						// curgroundTestMode->RemoveActionButtons();
+						break;
+					case 4: // include
+						messChange.ptr = curgroundTestMode->playerInv[curgroundTestMode->selectedIndex].ptr;
+						messChange.amount = atol(tEdit->text);
+						messChange.dstListType = GTM_BUTTON_LIST_WRK;
+						messChange.srcListType = GTM_BUTTON_LIST_INV;
+						lclient->SendMsg(sizeof(messChange), (void *)&messChange);
+						// curgroundTestMode->RemoveActionButtons();
+						break;
+					case 5: // exclude
+						messChange.ptr = curgroundTestMode->playerInv[curgroundTestMode->selectedIndex].ptr;
+						messChange.amount = atol(tEdit->text);
+						messChange.srcListType = GTM_BUTTON_LIST_WRK;
+						messChange.dstListType = GTM_BUTTON_LIST_INV;
+						lclient->SendMsg(sizeof(messChange), (void *)&messChange);
+						// curgroundTestMode->RemoveActionButtons();
+						break;
+
+					}
+
+				}
+
+				//				MessPlayerChatLine chatMess;
+				//				sprintf(chatMess.text,"Giving %d gold!",atoi(tEdit->text));
+				//				lclient->SendMsg(sizeof(chatMess),(void *)&chatMess);
+			}
+			tEdit->SetText("");
+			tEdit->hasTypingFocus = FALSE;
+			
+			curgroundTestMode->transfercustommode = FALSE;
 			return 1;
 		}
 		break;
@@ -951,9 +1046,12 @@ int FAR PASCAL groundTestModeProcess(UIRect *curUIRect, int type, long x, short 
 				lclient->SendMsg(sizeof(transferRequest),(void *)&transferRequest);
 				curgroundTestMode->RemoveActionButtons();
 				break;
+			case ACTION_TYPE_GIVECUSTOM:
+				curgroundTestMode->transfercustommode = 1;
+				break;
 
 			case ACTION_TYPE_GIVEALL     :
-				transferRequest.amount = 255;
+				transferRequest.amount = 2147483647;
 				transferRequest.playerListType = curgroundTestMode->playerListMode;
 				transferRequest.isPlayerInfo = TRUE;
 				transferRequest.ptr = curgroundTestMode->playerInv[curgroundTestMode->selectedIndex].ptr;
@@ -991,9 +1089,12 @@ int FAR PASCAL groundTestModeProcess(UIRect *curUIRect, int type, long x, short 
 				lclient->SendMsg(sizeof(transferRequest),(void *)&transferRequest);
 				curgroundTestMode->RemoveActionButtons();
 				break;
+			case ACTION_TYPE_BUYCUSTOM:
+				curgroundTestMode->transfercustommode = 2;
+				break;
 
 			case ACTION_TYPE_BUYALL      :
-				transferRequest.amount = 255;
+				transferRequest.amount = 2147483647;
 				transferRequest.isPlayerInfo = FALSE;
 				transferRequest.playerListType = curgroundTestMode->playerListMode;
 				transferRequest.ptr = curgroundTestMode->otherInv[curgroundTestMode->selectedIndex].ptr;
@@ -1031,9 +1132,12 @@ int FAR PASCAL groundTestModeProcess(UIRect *curUIRect, int type, long x, short 
 				lclient->SendMsg(sizeof(transferRequest),(void *)&transferRequest);
 				curgroundTestMode->RemoveActionButtons();
 				break;
+			case ACTION_TYPE_RETRACTCUSTOM:
+				curgroundTestMode->transfercustommode = 3;
+				break;
 
 			case ACTION_TYPE_RETRACTALL      :
-				transferRequest.amount = 255;
+				transferRequest.amount = 2147483647;
 				transferRequest.isPlayerInfo = FALSE;
 				transferRequest.playerListType = curgroundTestMode->playerListMode;
 				transferRequest.ptr = curgroundTestMode->yourInv[curgroundTestMode->selectedIndex].ptr;
@@ -1090,18 +1194,37 @@ int FAR PASCAL groundTestModeProcess(UIRect *curUIRect, int type, long x, short 
 			case ACTION_TYPE_ATTACK:
 				if (bboClient->selectedMOB)
 				{
-//					if (bboClient->selectedMOB != bboClient->playerAvatar &&
-//						 bboClient->selectedMOB->type == SMOB_MONSTER)
+					//					if (bboClient->selectedMOB != bboClient->playerAvatar &&
+					//						 bboClient->selectedMOB->type == SMOB_MONSTER)
 					if (bboClient->selectedMOB->type == SMOB_MONSTER)
 					{
 						messAA.mobID = bboClient->selectedMOB->mobID;
-						lclient->SendMsg(sizeof(messAA),(void *)&messAA);
+						lclient->SendMsg(sizeof(messAA), (void *)&messAA);
 					}
 					else if (bboClient->controlledMonsterID != -1 &&
-						 bboClient->selectedMOB->type == SMOB_AVATAR)
+						bboClient->selectedMOB->type == SMOB_AVATAR)
 					{
 						messAA.mobID = bboClient->selectedMOB->avatarID;
-						lclient->SendMsg(sizeof(messAA),(void *)&messAA);
+						lclient->SendMsg(sizeof(messAA), (void *)&messAA);
+					}
+				}
+				break;
+
+			case ACTION_TYPE_BM_TAME:
+				if (bboClient->selectedMOB)
+				{
+					//					if (bboClient->selectedMOB != bboClient->playerAvatar &&
+					//						 bboClient->selectedMOB->type == SMOB_MONSTER)
+					if (bboClient->selectedMOB->type == SMOB_MONSTER)
+					{
+						messST.mobID = bboClient->selectedMOB->mobID;
+						lclient->SendMsg(sizeof(messST), (void *)&messST);
+					}
+					else if (bboClient->controlledMonsterID != -1 &&
+						bboClient->selectedMOB->type == SMOB_AVATAR)
+					{
+						messST.mobID = bboClient->selectedMOB->avatarID;
+						lclient->SendMsg(sizeof(messST), (void *)&messST);
 					}
 				}
 				break;
@@ -1110,11 +1233,11 @@ int FAR PASCAL groundTestModeProcess(UIRect *curUIRect, int type, long x, short 
 				if (bboClient->selectedMOB)
 				{
 					if (bboClient->selectedMOB != bboClient->playerAvatar &&
-						 bboClient->selectedMOB->type == SMOB_MONSTER)
+						bboClient->selectedMOB->type == SMOB_MONSTER)
 					{
 						adminMess.mobID = bboClient->selectedMOB->mobID;
 						adminMess.messageType = MESS_ADMIN_TAKE_CONTROL;
-						lclient->SendMsg(sizeof(adminMess),(void *)&adminMess);
+						lclient->SendMsg(sizeof(adminMess), (void *)&adminMess);
 					}
 				}
 				break;
@@ -1125,6 +1248,28 @@ int FAR PASCAL groundTestModeProcess(UIRect *curUIRect, int type, long x, short 
 					adminMess.mobID = bboClient->selectedMOB->mobID;
 					adminMess.messageType = MESS_ADMIN_RELEASE_CONTROL;
 					lclient->SendMsg(sizeof(adminMess),(void *)&adminMess);
+				}
+				break;
+
+			case ACTION_TYPE_BM_CONTROL:
+				if (bboClient->selectedMOB)
+				{
+					if (bboClient->selectedMOB == bboClient->playerAvatar)  //make sure it's sending the right id.
+					{
+						adminMess.mobID = bboClient->playerAvatar->mobID;
+						adminMess.messageType = MESS_PLAYER_CONTROL;
+						lclient->SendMsg(sizeof(adminMess), (void *)&adminMess); // server will fetch the right id from it's saved data.
+						BeastTagAlong = FALSE;
+					}
+				}
+				break;
+
+			case ACTION_TYPE_BM_RECALL:
+				if (bboClient->selectedMOB)
+				{
+						adminMess.mobID = bboClient->playerAvatar->mobID; // the player is not on screen so we have to fetch it.
+						adminMess.messageType = MESS_PLAYER_RECALL;			// the option should only show up when right clicking the one you are controlling.
+						lclient->SendMsg(sizeof(adminMess), (void *)&adminMess); // server will fetch the right id from it's saved data.  
 				}
 				break;
 
@@ -1198,27 +1343,39 @@ int FAR PASCAL groundTestModeProcess(UIRect *curUIRect, int type, long x, short 
 				curgroundTestMode->RemoveActionButtons();
 				break;
 
-			case ACTION_TYPE_INCLUDE5     :
+			case ACTION_TYPE_INCLUDE2:
+				messChange.ptr = curgroundTestMode->playerInv[curgroundTestMode->selectedIndex].ptr;
+				messChange.amount = 2;
+				messChange.dstListType = GTM_BUTTON_LIST_WRK;
+				messChange.srcListType = GTM_BUTTON_LIST_INV;
+				lclient->SendMsg(sizeof(messChange), (void *)&messChange);
+				curgroundTestMode->RemoveActionButtons();
+				break;
+
+			case ACTION_TYPE_INCLUDE5:
 				messChange.ptr = curgroundTestMode->playerInv[curgroundTestMode->selectedIndex].ptr;
 				messChange.amount = 5;
 				messChange.dstListType = GTM_BUTTON_LIST_WRK;
 				messChange.srcListType = GTM_BUTTON_LIST_INV;
-				lclient->SendMsg(sizeof(messChange),(void *)&messChange);
+				lclient->SendMsg(sizeof(messChange), (void *)&messChange);
 				curgroundTestMode->RemoveActionButtons();
 				break;
 
-			case ACTION_TYPE_INCLUDE20     :
+			case ACTION_TYPE_INCLUDE20:
 				messChange.ptr = curgroundTestMode->playerInv[curgroundTestMode->selectedIndex].ptr;
 				messChange.amount = 20;
 				messChange.dstListType = GTM_BUTTON_LIST_WRK;
 				messChange.srcListType = GTM_BUTTON_LIST_INV;
-				lclient->SendMsg(sizeof(messChange),(void *)&messChange);
+				lclient->SendMsg(sizeof(messChange), (void *)&messChange);
 				curgroundTestMode->RemoveActionButtons();
+				break;
+			case ACTION_TYPE_INCLUDECUSTOM:
+				curgroundTestMode->transfercustommode = 4;
 				break;
 
 			case ACTION_TYPE_INCLUDEALL     :
 				messChange.ptr = curgroundTestMode->playerInv[curgroundTestMode->selectedIndex].ptr;
-				messChange.amount = 255;
+				messChange.amount = 2147483647;
 				messChange.dstListType = GTM_BUTTON_LIST_WRK;
 				messChange.srcListType = GTM_BUTTON_LIST_INV;
 				lclient->SendMsg(sizeof(messChange),(void *)&messChange);
@@ -1234,12 +1391,21 @@ int FAR PASCAL groundTestModeProcess(UIRect *curUIRect, int type, long x, short 
 				curgroundTestMode->RemoveActionButtons();
 				break;
 
-			case ACTION_TYPE_EXCLUDE5     :
+			case ACTION_TYPE_EXCLUDE2:
+				messChange.ptr = curgroundTestMode->playerInv[curgroundTestMode->selectedIndex].ptr;
+				messChange.amount = 2;
+				messChange.srcListType = GTM_BUTTON_LIST_WRK;
+				messChange.dstListType = GTM_BUTTON_LIST_INV;
+				lclient->SendMsg(sizeof(messChange), (void *)&messChange);
+				curgroundTestMode->RemoveActionButtons();
+				break;
+
+			case ACTION_TYPE_EXCLUDE5:
 				messChange.ptr = curgroundTestMode->playerInv[curgroundTestMode->selectedIndex].ptr;
 				messChange.amount = 5;
 				messChange.srcListType = GTM_BUTTON_LIST_WRK;
 				messChange.dstListType = GTM_BUTTON_LIST_INV;
-				lclient->SendMsg(sizeof(messChange),(void *)&messChange);
+				lclient->SendMsg(sizeof(messChange), (void *)&messChange);
 				curgroundTestMode->RemoveActionButtons();
 				break;
 
@@ -1251,10 +1417,13 @@ int FAR PASCAL groundTestModeProcess(UIRect *curUIRect, int type, long x, short 
 				lclient->SendMsg(sizeof(messChange),(void *)&messChange);
 				curgroundTestMode->RemoveActionButtons();
 				break;
+			case ACTION_TYPE_EXCLUDECUSTOM:
+				curgroundTestMode->transfercustommode = 5;
+				break;
 
 			case ACTION_TYPE_EXCLUDEALL     :
 				messChange.ptr = curgroundTestMode->playerInv[curgroundTestMode->selectedIndex].ptr;
-				messChange.amount = 255;
+				messChange.amount = 2147483647;
 				messChange.srcListType = GTM_BUTTON_LIST_WRK;
 				messChange.dstListType = GTM_BUTTON_LIST_INV;
 				lclient->SendMsg(sizeof(messChange),(void *)&messChange);
@@ -1606,6 +1775,7 @@ int GroundTestMode::Activate(void) // do this when the mode becomes the forbboCl
 	moveRequestTimer = timeGetTime();
 	giveMoneyMode = FALSE;
 	namePetMode = FALSE;
+	transfercustommode = FALSE;
 
 	SetEnvironment();
 
@@ -1654,17 +1824,75 @@ int GroundTestMode::Activate(void) // do this when the mode becomes the forbboCl
 
 	puma->LoadTexture("dat\\UITradeList.png"  , &uiTradeListArt, 0);
 
-	puma->LoadTexture("dat\\radar1.png"  , &radarArt[0], 0);
-	puma->LoadTexture("dat\\radar2.png"  , &radarArt[1], 0);
-	puma->LoadTexture("dat\\radar3.png"  , &radarArt[2], 0);
-	puma->LoadTexture("dat\\radar4.png"  , &radarArt[3], 0);
-	puma->LoadTexture("dat\\radar1A.png"  , &radarArt[4], 0);
-	puma->LoadTexture("dat\\radar2A.png"  , &radarArt[5], 0);
-	puma->LoadTexture("dat\\radar3A.png"  , &radarArt[6], 0);
-	puma->LoadTexture("dat\\radar4A.png"  , &radarArt[7], 0);
-	puma->LoadTexture("dat\\dot.png"  , &radarArt[8], 0xff000000);
+	// we have multiple maps now :)
 
-   // ********** start building UIRects
+	// main map
+
+	puma->LoadTexture("dat\\radar1.png", &radarArt[0], 0);
+	puma->LoadTexture("dat\\radar2.png", &radarArt[1], 0);
+	puma->LoadTexture("dat\\radar3.png", &radarArt[2], 0);
+	puma->LoadTexture("dat\\radar4.png", &radarArt[3], 0);
+	puma->LoadTexture("dat\\radar1A.png", &radarArt[4], 0);
+	puma->LoadTexture("dat\\radar2A.png", &radarArt[5], 0);
+	puma->LoadTexture("dat\\radar3A.png", &radarArt[6], 0);
+	puma->LoadTexture("dat\\radar4A.png", &radarArt[7], 0);
+	puma->LoadTexture("dat\\dot.png", &radarArt[8], 0xff000000);
+
+	// second map
+
+	puma->LoadTexture("dat\\radarb1.png", &radarArtb[0], 0);
+	puma->LoadTexture("dat\\radarb2.png", &radarArtb[1], 0);
+	puma->LoadTexture("dat\\radarb3.png", &radarArtb[2], 0);
+	puma->LoadTexture("dat\\radarb4.png", &radarArtb[3], 0);
+	puma->LoadTexture("dat\\radarb1A.png", &radarArtb[4], 0);
+	puma->LoadTexture("dat\\radarb2A.png", &radarArtb[5], 0);
+	puma->LoadTexture("dat\\radarb3A.png", &radarArtb[6], 0);
+	puma->LoadTexture("dat\\radarb4A.png", &radarArtb[7], 0);
+	puma->LoadTexture("dat\\dot.png", &radarArtb[8], 0xff000000);
+
+	// spirit realm
+
+	puma->LoadTexture("dat\\radarS1.png", &radarArtS1[0], 0);
+	puma->LoadTexture("dat\\radarS1A.png", &radarArtS1[1], 0);
+	puma->LoadTexture("dat\\dot.png", &radarArtS1[2], 0xff000000);
+
+	// realm of the dead
+
+	puma->LoadTexture("dat\\radarS2.png", &radarArtS2[0], 0);
+	puma->LoadTexture("dat\\radarS2A.png", &radarArtS2[1], 0);
+	puma->LoadTexture("dat\\dot.png", &radarArtS2[2], 0xff000000);
+
+	//realm of dragons
+
+	puma->LoadTexture("dat\\radarS3.png", &radarArtS3[0], 0);
+	puma->LoadTexture("dat\\radarS3A.png", &radarArtS3[1], 0);
+	puma->LoadTexture("dat\\dot.png", &radarArtS3[2], 0xff000000);
+
+	// lab 1
+
+	puma->LoadTexture("dat\\radarS4.png", &radarArtS4[0], 0);
+	puma->LoadTexture("dat\\radarS4A.png", &radarArtS4[1], 0);
+	puma->LoadTexture("dat\\dot.png", &radarArtS4[2], 0xff000000);
+
+	// lab 2
+
+	puma->LoadTexture("dat\\radarS5.png", &radarArtS5[0], 0);
+	puma->LoadTexture("dat\\radarS5A.png", &radarArtS5[1], 0);
+	puma->LoadTexture("dat\\dot.png", &radarArtS5[2], 0xff000000);
+
+	// lab 3
+
+	puma->LoadTexture("dat\\radarS6.png", &radarArtS6[0], 0);
+	puma->LoadTexture("dat\\radarS6A.png", &radarArtS6[1], 0);
+	puma->LoadTexture("dat\\dot.png", &radarArtS6[2], 0xff000000);
+
+	// test realm
+
+	puma->LoadTexture("dat\\radarS7.png", &radarArtS7[0], 0);
+	puma->LoadTexture("dat\\radarS7A.png", &radarArtS7[1], 0);
+	puma->LoadTexture("dat\\dot.png", &radarArtS7[2], 0xff000000);
+
+	// ********** start building UIRects
 	int centerX = puma->ScreenW()/2;
 	int centerY = puma->ScreenH()/2;
 
@@ -2335,7 +2563,7 @@ int GroundTestMode::Tick(void)
 
 	int centerX = puma->ScreenW()/2;
 	int centerY = puma->ScreenH()/2;
-
+	
 	if ((SPACE_DUNGEON == curMapType || SPACE_GUILD == curMapType) && bboClient->isEditingDungeon)
 	{
 		if (!fullWindow->childRectList.Find(GTM_BUTTON_DUNEDIT_WALL))
@@ -2476,7 +2704,6 @@ int GroundTestMode::Tick(void)
 		namePetMode = TRUE;
 		bboClient->needToName = FALSE;
 	}
-
 	if (namePetMode)
 	{
 		if (!fullWindow->childRectList.Find(GTM_BUTTON_NAMEPET_TITLE))
@@ -2520,6 +2747,57 @@ int GroundTestMode::Tick(void)
 			delete tBox;
 
 			tEdit = (UIRectEditLine *) fullWindow->childRectList.Find(GTM_BUTTON_NAMEPET_EDLINE);
+			if (tEdit)
+			{
+				fullWindow->childRectList.Remove(tEdit);
+				delete tEdit;
+			}
+		}
+	}
+	if (transfercustommode > 0) // number determines whihc transfer packet wil be used
+	{
+		if (!fullWindow->childRectList.Find(GTM_BUTTON_CUSTOM_TITLE))
+		{
+			UIRectEditLine *tEdit;
+			UIRectTextBox *tBox;
+			tBox = new UIRectTextBox(GTM_BUTTON_CUSTOM_TITLE,
+				puma->ScreenW() / 2 - 100, puma->ScreenH() / 2 - 13 + 30,
+				puma->ScreenW() / 2 + 99, puma->ScreenH() / 2 + 10 + 30);
+			tBox->SetText("How many to transfer?");
+			tBox->process = groundTestModeProcess;
+			tBox->font = 2;
+			tBox->textFlags = D3DFONT_CENTERED | D3DFONT_VERTCENTERED;
+			tBox->fillArt = uiPopUpLongArt;
+			fullWindow->AddChild(tBox);
+			UIRectStep(0, 1);
+
+			tEdit = new UIRectEditLine(GTM_BUTTON_CUSTOM_EDLINE, -2, -2, -2, -2);
+			tEdit->SetText("");
+			tEdit->process = groundTestModeProcess;
+			tEdit->fillArt = NULL;
+			tEdit->font = 1;
+			fullWindow->AddChild(tEdit);
+
+			tEdit->hasTypingFocus = TRUE;
+			tEdit->suppressEnter = TRUE;
+
+			fullWindow->Arrange();
+
+		}
+
+	}
+	else
+	{
+		UIRectEditLine *tEdit;
+		UIRectTextBox *tBox;
+
+		tBox = (UIRectTextBox *)fullWindow->childRectList.Find(GTM_BUTTON_CUSTOM_TITLE);
+		if (tBox)
+		{
+			fullWindow->childRectList.Remove(tBox);
+			delete tBox;
+
+			tEdit = (UIRectEditLine *)fullWindow->childRectList.Find(GTM_BUTTON_CUSTOM_EDLINE);
 			if (tEdit)
 			{
 				fullWindow->childRectList.Remove(tEdit);
@@ -2745,57 +3023,296 @@ int GroundTestMode::Tick(void)
 	int centerCellX, centerCellY;
 	centerCellX = bboClient->playerAvatar->cellX;
 	centerCellY = bboClient->playerAvatar->cellY;
-
-	if (256 == bboClient->curMapSizeY && mapState)
+	
+	if (((256 == bboClient->curMapSizeY) || (64 == bboClient->curMapSizeY)) && mapState)
 	{
-		if (1 == mapState)
+		if (256 == bboClient->curMapSizeY) // it's a normal realm
 		{
-			radarArt[0]->GetLevelDesc(0, &desc);
-			RECT dRectRadar0 = {centerX, centerY - desc.Height, centerX + desc.Width, centerY};
-			puma->DrawRect(radarArt[0],dRectRadar0,0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+			if (lastRealmID < 1) // normal normal realm
+			{
+				if (1 == mapState)
+				{
+					radarArt[0]->GetLevelDesc(0, &desc);
+					RECT dRectRadar0 = { centerX, centerY - desc.Height, centerX + desc.Width, centerY };
+					puma->DrawRect(radarArt[0], dRectRadar0, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
 
-			radarArt[1]->GetLevelDesc(0, &desc);
-			RECT dRectRadar1 = {centerX - desc.Width, centerY - desc.Height, centerX, centerY};
-			puma->DrawRect(radarArt[1],dRectRadar1,0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+					radarArt[1]->GetLevelDesc(0, &desc);
+					RECT dRectRadar1 = { centerX - desc.Width, centerY - desc.Height, centerX, centerY };
+					puma->DrawRect(radarArt[1], dRectRadar1, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
 
-			radarArt[3]->GetLevelDesc(0, &desc);
-			RECT dRectRadar3 = {centerX - desc.Width, centerY, centerX, centerY + desc.Height};
-			puma->DrawRect(radarArt[3],dRectRadar3,0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+					radarArt[3]->GetLevelDesc(0, &desc);
+					RECT dRectRadar3 = { centerX - desc.Width, centerY, centerX, centerY + desc.Height };
+					puma->DrawRect(radarArt[3], dRectRadar3, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
 
-			radarArt[2]->GetLevelDesc(0, &desc);
-			RECT dRectRadar2 = {centerX, centerY, centerX + desc.Width, centerY + desc.Height};
-			puma->DrawRect(radarArt[2],dRectRadar2,0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+					radarArt[2]->GetLevelDesc(0, &desc);
+					RECT dRectRadar2 = { centerX, centerY, centerX + desc.Width, centerY + desc.Height };
+					puma->DrawRect(radarArt[2], dRectRadar2, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				}
+				else
+				{
+					radarArt[4]->GetLevelDesc(0, &desc);
+					RECT dRectRadar0 = { centerX, centerY - desc.Height, centerX + desc.Width, centerY };
+					puma->DrawRect(radarArt[4], dRectRadar0, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+
+					radarArt[5]->GetLevelDesc(0, &desc);
+					RECT dRectRadar1 = { centerX - desc.Width, centerY - desc.Height, centerX, centerY };
+					puma->DrawRect(radarArt[5], dRectRadar1, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+
+					radarArt[7]->GetLevelDesc(0, &desc);
+					RECT dRectRadar3 = { centerX - desc.Width, centerY, centerX, centerY + desc.Height };
+					puma->DrawRect(radarArt[7], dRectRadar3, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+
+					radarArt[6]->GetLevelDesc(0, &desc);
+					RECT dRectRadar2 = { centerX, centerY, centerX + desc.Width, centerY + desc.Height };
+					puma->DrawRect(radarArt[6], dRectRadar2, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				}
+
+				if ((bboClient->flashCounter / 4) & 1)
+				{
+					radarArt[8]->GetLevelDesc(0, &desc);
+					RECT dRectDot = { centerX + 128 - centerCellX,
+									  centerY - 128 + centerCellY,
+									  centerX + 128 - centerCellX + desc.Width,
+									  centerY - 128 + centerCellY + desc.Height };
+					puma->DrawRect(radarArt[8], dRectDot, D3DCOLOR_ARGB(255, 255, 0, 0));
+				}
+
+			}
+			else if (lastRealmID == 1) // alternate normal realm. 
+			{
+				if (1 == mapState)
+				{
+					radarArtb[0]->GetLevelDesc(0, &desc);
+					RECT dRectRadar0 = { centerX, centerY - desc.Height, centerX + desc.Width, centerY };
+					puma->DrawRect(radarArtb[0], dRectRadar0, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+
+					radarArtb[1]->GetLevelDesc(0, &desc);
+					RECT dRectRadar1 = { centerX - desc.Width, centerY - desc.Height, centerX, centerY };
+					puma->DrawRect(radarArtb[1], dRectRadar1, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+
+					radarArtb[3]->GetLevelDesc(0, &desc);
+					RECT dRectRadar3 = { centerX - desc.Width, centerY, centerX, centerY + desc.Height };
+					puma->DrawRect(radarArtb[3], dRectRadar3, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+
+					radarArtb[2]->GetLevelDesc(0, &desc);
+					RECT dRectRadar2 = { centerX, centerY, centerX + desc.Width, centerY + desc.Height };
+					puma->DrawRect(radarArtb[2], dRectRadar2, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				}
+				else
+				{
+					radarArtb[4]->GetLevelDesc(0, &desc);
+					RECT dRectRadar0 = { centerX, centerY - desc.Height, centerX + desc.Width, centerY };
+					puma->DrawRect(radarArtb[4], dRectRadar0, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+
+					radarArtb[5]->GetLevelDesc(0, &desc);
+					RECT dRectRadar1 = { centerX - desc.Width, centerY - desc.Height, centerX, centerY };
+					puma->DrawRect(radarArtb[5], dRectRadar1, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+
+					radarArtb[7]->GetLevelDesc(0, &desc);
+					RECT dRectRadar3 = { centerX - desc.Width, centerY, centerX, centerY + desc.Height };
+					puma->DrawRect(radarArtb[7], dRectRadar3, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+
+					radarArtb[6]->GetLevelDesc(0, &desc);
+					RECT dRectRadar2 = { centerX, centerY, centerX + desc.Width, centerY + desc.Height };
+					puma->DrawRect(radarArtb[6], dRectRadar2, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				}
+
+				if ((bboClient->flashCounter / 4) & 1)
+				{
+					radarArtb[8]->GetLevelDesc(0, &desc);
+					RECT dRectDot = { centerX + 128 - centerCellX,
+									  centerY - 128 + centerCellY,
+										  centerX + 128 - centerCellX + desc.Width,
+										  centerY - 128 + centerCellY + desc.Height };
+					puma->DrawRect(radarArtb[8], dRectDot, D3DCOLOR_ARGB(255, 255, 0, 0));
+				}
+
+			}
 		}
-		else
-		{
-			radarArt[4]->GetLevelDesc(0, &desc);
-			RECT dRectRadar0 = {centerX, centerY - desc.Height, centerX + desc.Width, centerY};
-			puma->DrawRect(radarArt[4],dRectRadar0,0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+		else // it's not 256, so it must be 64, and it's realm/lab maps
+		{   
+			if (lastRealmID == REALM_ID_SPIRITS) // spirit realm
+			{
+				if (1 == mapState)
+				{
+					radarArtS1[0]->GetLevelDesc(0, &desc);
+					RECT dRectRadar0 = { centerX, centerY - (desc.Height/2), centerX + (desc.Width/2), centerY };
+					puma->DrawRect(radarArtS1[0], dRectRadar0, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				}
+				else
+				{
+					radarArtS1[1]->GetLevelDesc(0, &desc);
+					RECT dRectRadar0 = { centerX, centerY - (desc.Height/2), centerX + (desc.Width/2), centerY };
+					puma->DrawRect(radarArtS1[1], dRectRadar0, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				}
 
-			radarArt[5]->GetLevelDesc(0, &desc);
-			RECT dRectRadar1 = {centerX - desc.Width, centerY - desc.Height, centerX, centerY};
-			puma->DrawRect(radarArt[5],dRectRadar1,0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				if ((bboClient->flashCounter / 4) & 1)
+				{
+					radarArtS1[2]->GetLevelDesc(0, &desc);
+					RECT dRectDot = { centerX + 32 - centerCellX,
+									  centerY - 32 + centerCellY,
+									  centerX + 32 - centerCellX + desc.Width,
+									  centerY - 32 + centerCellY + desc.Height };
+					puma->DrawRect(radarArtS1[8], dRectDot, D3DCOLOR_ARGB(255, 255, 0, 0));
+				}
+			}
+			else if (lastRealmID == REALM_ID_DEAD) // ROTD
+			{
+				if (1 == mapState)
+				{
+					radarArtS2[0]->GetLevelDesc(0, &desc);
+					RECT dRectRadar0 = { centerX, centerY - desc.Height, centerX + desc.Width, centerY };
+					puma->DrawRect(radarArtS2[0], dRectRadar0, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				}
+				else
+				{
+					radarArtS2[1]->GetLevelDesc(0, &desc);
+					RECT dRectRadar0 = { centerX, centerY - desc.Height, centerX + desc.Width, centerY };
+					puma->DrawRect(radarArtS2[1], dRectRadar0, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				}
 
-			radarArt[7]->GetLevelDesc(0, &desc);
-			RECT dRectRadar3 = {centerX - desc.Width, centerY, centerX, centerY + desc.Height};
-			puma->DrawRect(radarArt[7],dRectRadar3,0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				if ((bboClient->flashCounter / 4) & 1)
+				{
+					radarArtS2[2]->GetLevelDesc(0, &desc);
+					RECT dRectDot = { centerX + 32 - centerCellX,
+									  centerY - 32 + centerCellY,
+									  centerX + 32 - centerCellX + desc.Width,
+									  centerY - 32 + centerCellY + desc.Height };
+					puma->DrawRect(radarArtS2[8], dRectDot, D3DCOLOR_ARGB(255, 255, 0, 0));
+				}
+			}
+			else if (lastRealmID == REALM_ID_DRAGONS) // realm of dragons
+			{
+				if (1 == mapState)
+				{
+					radarArtS3[0]->GetLevelDesc(0, &desc);
+					RECT dRectRadar0 = { centerX, centerY - desc.Height, centerX + desc.Width, centerY };
+					puma->DrawRect(radarArtS3[0], dRectRadar0, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				}
+				else
+				{
+					radarArtS3[1]->GetLevelDesc(0, &desc);
+					RECT dRectRadar0 = { centerX, centerY - desc.Height, centerX + desc.Width, centerY };
+					puma->DrawRect(radarArtS3[1], dRectRadar0, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				}
 
-			radarArt[6]->GetLevelDesc(0, &desc);
-			RECT dRectRadar2 = {centerX, centerY, centerX + desc.Width, centerY + desc.Height};
-			puma->DrawRect(radarArt[6],dRectRadar2,0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				if ((bboClient->flashCounter / 4) & 1)
+				{
+					radarArtS3[2]->GetLevelDesc(0, &desc);
+					RECT dRectDot = { centerX + 32 - centerCellX,
+									  centerY - 32 + centerCellY,
+										  centerX + 32 - centerCellX + desc.Width,
+										  centerY - 32 + centerCellY + desc.Height };
+					puma->DrawRect(radarArtS3[8], dRectDot, D3DCOLOR_ARGB(255, 255, 0, 0));
+				}
+			}
+			else if (lastRealmID == REALM_ID_LAB1) // lab1
+			{
+				if (1 == mapState)
+				{
+					radarArtS4[0]->GetLevelDesc(0, &desc);
+					RECT dRectRadar0 = { centerX, centerY - desc.Height, centerX + desc.Width, centerY };
+					puma->DrawRect(radarArtS4[0], dRectRadar0, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				}
+				else
+				{
+					radarArtS4[1]->GetLevelDesc(0, &desc);
+					RECT dRectRadar0 = { centerX, centerY - desc.Height, centerX + desc.Width, centerY };
+					puma->DrawRect(radarArtS4[1], dRectRadar0, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				}
+
+				if ((bboClient->flashCounter / 4) & 1)
+				{
+					radarArtS4[2]->GetLevelDesc(0, &desc);
+					RECT dRectDot = { centerX + 32 - centerCellX,
+									  centerY - 32 + centerCellY,
+										  centerX + 32 - centerCellX + desc.Width,
+										  centerY - 32 + centerCellY + desc.Height };
+					puma->DrawRect(radarArtS4[8], dRectDot, D3DCOLOR_ARGB(255, 255, 0, 0));
+				}
+			}
+			else if (lastRealmID == REALM_ID_LAB2) // lab2
+			{
+				if (1 == mapState)
+				{
+					radarArtS5[0]->GetLevelDesc(0, &desc);
+					RECT dRectRadar0 = { centerX, centerY - desc.Height, centerX + desc.Width, centerY };
+					puma->DrawRect(radarArtS5[0], dRectRadar0, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				}
+				else
+				{
+					radarArtS5[1]->GetLevelDesc(0, &desc);
+					RECT dRectRadar0 = { centerX, centerY - desc.Height, centerX + desc.Width, centerY };
+					puma->DrawRect(radarArtS5[1], dRectRadar0, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				}
+
+				if ((bboClient->flashCounter / 4) & 1)
+				{
+					radarArtS5[2]->GetLevelDesc(0, &desc);
+					RECT dRectDot = { centerX + 32 - centerCellX,
+									  centerY - 32 + centerCellY,
+									  centerX + 32 - centerCellX + desc.Width,
+									  centerY - 32 + centerCellY + desc.Height };
+					puma->DrawRect(radarArtS5[8], dRectDot, D3DCOLOR_ARGB(255, 255, 0, 0));
+				}
+			}
+			else if (lastRealmID == REALM_ID_LAB3) // lab3
+			{
+				if (1 == mapState)
+				{
+					radarArtS6[0]->GetLevelDesc(0, &desc);
+					RECT dRectRadar0 = { centerX, centerY - desc.Height, centerX + desc.Width, centerY };
+					puma->DrawRect(radarArtS6[0], dRectRadar0, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				}
+				else
+				{
+					radarArtS6[1]->GetLevelDesc(0, &desc);
+					RECT dRectRadar0 = { centerX, centerY - desc.Height, centerX + desc.Width, centerY };
+					puma->DrawRect(radarArtS6[1], dRectRadar0, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				}
+
+				if ((bboClient->flashCounter / 4) & 1)
+				{
+					radarArtS6[2]->GetLevelDesc(0, &desc);
+					RECT dRectDot = { centerX + 32 - centerCellX,
+									  centerY - 32 + centerCellY,
+									  centerX + 32 - centerCellX + desc.Width,
+									  centerY - 32 + centerCellY + desc.Height };
+					puma->DrawRect(radarArtS6[8], dRectDot, D3DCOLOR_ARGB(255, 255, 0, 0));
+				}
+			}
+
+			else if (lastRealmID == REALM_ID_TEST) // test realm
+			{
+				if (1 == mapState)
+				{
+					radarArtS7[0]->GetLevelDesc(0, &desc);
+					RECT dRectRadar0 = { centerX, centerY - desc.Height, centerX + desc.Width, centerY };
+					puma->DrawRect(radarArtS6[0], dRectRadar0, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				}
+				else
+				{
+					radarArtS7[1]->GetLevelDesc(0, &desc);
+					RECT dRectRadar0 = { centerX, centerY - desc.Height, centerX + desc.Width, centerY };
+					puma->DrawRect(radarArtS6[1], dRectRadar0, 0xffffffff);//D3DCOLOR_ARGB(50,55,0,55));
+				}
+
+				if ((bboClient->flashCounter / 4) & 1)
+				{
+					radarArtS7[2]->GetLevelDesc(0, &desc);
+					RECT dRectDot = { centerX + 32 - centerCellX,
+									  centerY - 32 + centerCellY,
+									  centerX + 32 - centerCellX + desc.Width,
+									  centerY - 32 + centerCellY + desc.Height };
+					puma->DrawRect(radarArtS6[8], dRectDot, D3DCOLOR_ARGB(255, 255, 0, 0));
+				}
+			}
+			// else we don't have a map, don't print it.
+
 		}
-
-		if ((bboClient->flashCounter/4)&1)
-		{
-			radarArt[8]->GetLevelDesc(0, &desc);
-			RECT dRectDot = {centerX + 128 - centerCellX, 
-				              centerY - 128 + centerCellY,
-								  centerX + 128 - centerCellX + desc.Width,
-								  centerY - 128 + centerCellY + desc.Height};
-			puma->DrawRect(radarArt[8],dRectDot, D3DCOLOR_ARGB(255,255,0,0));
-		}
+		
 	}
-/*	
+	/*	
 	uiPopUpLongArt->GetLevelDesc(0, &desc);
 	RECT dRect5 = {puma->ScreenW()-255 - 150, 0, puma->ScreenW()-150, 32};
 	puma->DrawRect(uiPopUpLongArt,dRect5,0xffffffff);
@@ -2854,7 +3371,7 @@ int GroundTestMode::Tick(void)
 		BBOMob *curMob = (BBOMob *) bboClient->monsterList->First();
 		while (curMob)
 		{
-			if (curMob->mobID == bboClient->controlledMonsterID)
+			if ((curMob->mobID == bboClient->controlledMonsterID) && (!BeastTagAlong))
 			{
 				centerCellX = curMob->cellX;
 				centerCellY = curMob->cellY;
@@ -2972,13 +3489,17 @@ int GroundTestMode::TypingBoxOn(void)
 	UIRectEditLine *edMoney = (UIRectEditLine *)
 		    fullWindow->childRectList.Find(GTM_BUTTON_GIVEMONEYEDLINE);
 	UIRectEditLine *edPetName = (UIRectEditLine *)
-		    fullWindow->childRectList.Find(GTM_BUTTON_NAMEPET_EDLINE);
+		fullWindow->childRectList.Find(GTM_BUTTON_NAMEPET_EDLINE);
+	UIRectEditLine *edCustom = (UIRectEditLine *)
+		fullWindow->childRectList.Find(GTM_BUTTON_CUSTOM_EDLINE);
 
  	if (edLine->hasTypingFocus)
 		return TRUE;
  	if (edMoney && edMoney->hasTypingFocus)
 		return TRUE;
- 	if (edPetName && edPetName->hasTypingFocus)
+	if (edCustom && edCustom->hasTypingFocus)
+		return TRUE;
+	if (edPetName && edPetName->hasTypingFocus)
 		return TRUE;
 
 	return FALSE;
@@ -2990,6 +3511,7 @@ long GroundTestMode::WindowServicer(void)
 
 	if (POMSezQuit)
 	{
+		lastRealmID = 0;
 		newGameMode = NULL;
 		curgroundTestMode->retState = GMR_POP_ME;
 	}
@@ -3147,7 +3669,9 @@ long GroundTestMode::WindowServicer(void)
 				UIRectEditLine *edMoney = (UIRectEditLine *)
 					    fullWindow->childRectList.Find(GTM_BUTTON_GIVEMONEYEDLINE);
 				UIRectEditLine *edPetName = (UIRectEditLine *)
-					    fullWindow->childRectList.Find(GTM_BUTTON_NAMEPET_EDLINE);
+					fullWindow->childRectList.Find(GTM_BUTTON_NAMEPET_EDLINE);
+				UIRectEditLine *edCustom = (UIRectEditLine *)
+					fullWindow->childRectList.Find(GTM_BUTTON_CUSTOM_EDLINE);
 				if (edMoney)
 				{
 					if (!edMoney->hasTypingFocus)
@@ -3164,6 +3688,16 @@ long GroundTestMode::WindowServicer(void)
 					{
 						edPetName->hasTypingFocus = TRUE;
 						edPetName->suppressEnter = TRUE;
+						delete pie; // IMPORTANT to delete the message after using it!
+						return 0;
+					}
+				}
+				else if (edCustom)
+				{
+					if (!edCustom->hasTypingFocus)
+					{
+						edCustom->hasTypingFocus = TRUE;
+						edCustom->suppressEnter = TRUE;
 						delete pie; // IMPORTANT to delete the message after using it!
 						return 0;
 					}
@@ -3246,8 +3780,7 @@ long GroundTestMode::WindowServicer(void)
 			{
 				ProcessListPress(GTM_BUTTON_LIST_WLD);
 			}
-			
-			/*
+//            if (bboClient->cheats==1) // if cheats are on, allow hotkeys
 			if (!(localInfoFlags & LOCAL_FLAGS_HOTKEY_CTRL) || 
 				 extraKeyFlags & EXTRA_KEY_CTRL_DOWN)
 			{
@@ -3260,15 +3793,17 @@ long GroundTestMode::WindowServicer(void)
 					}
 				}
 			}
-			*/
+
 			if ((47 == pie->asciiValue || 59 == pie->asciiValue) && 
 				 !TypingBoxOn()) // '/', ';'
 			{
 				UIRectEditLine *edMoney = (UIRectEditLine *)
 					    fullWindow->childRectList.Find(GTM_BUTTON_GIVEMONEYEDLINE);
 				UIRectEditLine *edNamePet = (UIRectEditLine *)
-					    fullWindow->childRectList.Find(GTM_BUTTON_NAMEPET_EDLINE);
-				if (!edMoney && !edNamePet)
+					fullWindow->childRectList.Find(GTM_BUTTON_NAMEPET_EDLINE);
+				UIRectEditLine *edCustom = (UIRectEditLine *)
+					fullWindow->childRectList.Find(GTM_BUTTON_CUSTOM_EDLINE);
+				if (!edMoney && !edNamePet && !edCustom)
 				{
 					edLine->hasTypingFocus = TRUE;
 					edLine->suppressEnter = TRUE;
@@ -3456,9 +3991,17 @@ void GroundTestMode::HandleMessages(void)
 			{
 				playerIsAdmin = TRUE;
 			}
+			if (MESS_BEASTMASTER_ACTIVATE == adminMess->messageType)
+			{
+				playerIsBeastmaster = TRUE;
+				BeastTagAlong = TRUE;
+			}
 			if (MESS_ADMIN_RELEASE_CONTROL == adminMess->messageType)
 			{
-				bboClient->controlledMonsterID = -1;
+				if (!playerIsBeastmaster)
+					bboClient->controlledMonsterID = -1;
+				else
+					BeastTagAlong = TRUE;
 			}
 		   break;
 
@@ -3842,6 +4385,14 @@ void GroundTestMode::HandleInvenInfo(char* rawData, int size)
 				tButt->color[UIRECT_BCOL_NORMAL] = D3DCOLOR_ARGB(255, 150, 150, 55);
 			if (INVOBJ_EARTHKEY == info->type[i])
 				tButt->color[UIRECT_BCOL_NORMAL] = D3DCOLOR_ARGB(255, 255, 150, 55);
+			if (INVOBJ_EARTHKEY_RESUME == info->type[i])
+				tButt->color[UIRECT_BCOL_NORMAL] = D3DCOLOR_ARGB(255, 255, 150, 55);
+			if (INVOBJ_DOOMKEY == info->type[i])
+				tButt->color[UIRECT_BCOL_NORMAL] = D3DCOLOR_ARGB(255, 255, 180, 55);
+			if (INVOBJ_DOOMKEY_ENTRANCE == info->type[i])
+				tButt->color[UIRECT_BCOL_NORMAL] = D3DCOLOR_ARGB(255, 255, 180, 55);
+			if (INVOBJ_STABLED_PET == info->type[i])
+				tButt->color[UIRECT_BCOL_NORMAL] = D3DCOLOR_ARGB(255, 255, 200, 200);
 
 
 			playerInv[i].type   = info->type[i];
@@ -4040,7 +4591,7 @@ void GroundTestMode::HandleInvenInfo(char* rawData, int size)
 			if (0 == info->text[i][0])
 				tempText[0] = 0;
 			else if (info->amount[i] > 1)
-				sprintf(tempText,"%s %ldg (%ld)", info->text[i], (long) info->value[i], info->amount[i]);
+				sprintf(tempText,"%s %ldg (%ld)", info->text[i], (long) info->value[i], info->amount[i]); // wtf
 			else
 				sprintf(tempText,"%s %ldg", info->text[i], (long) info->value[i]);
 			tButt->SetText(tempText);
@@ -4081,6 +4632,12 @@ void GroundTestMode::HandleInvenInfo(char* rawData, int size)
 				tButt->color[UIRECT_BCOL_NORMAL] = D3DCOLOR_ARGB(255, 150, 150, 55);
 			if (INVOBJ_EARTHKEY == info->type[i])
 				tButt->color[UIRECT_BCOL_NORMAL] = D3DCOLOR_ARGB(255, 255, 150, 55);
+			if (INVOBJ_EARTHKEY_RESUME == info->type[i])
+				tButt->color[UIRECT_BCOL_NORMAL] = D3DCOLOR_ARGB(255, 255, 150, 55);
+			if (INVOBJ_DOOMKEY == info->type[i])
+				tButt->color[UIRECT_BCOL_NORMAL] = D3DCOLOR_ARGB(255, 255, 180, 55);
+			if (INVOBJ_DOOMKEY_ENTRANCE == info->type[i])
+				tButt->color[UIRECT_BCOL_NORMAL] = D3DCOLOR_ARGB(255, 255, 180, 55);
 
 			tempIRef[i].type   = info->type[i];
 			tempIRef[i].ptr    = info->ptr[i];
@@ -4120,7 +4677,7 @@ int GroundTestMode::ShootRayIntoScene(PumaInputEvent *pie, int justTest)
 		BBOMob *curMob = (BBOMob *) bboClient->monsterList->First();
 		while (curMob)
 		{
-			if (curMob->mobID == bboClient->controlledMonsterID)
+			if ((curMob->mobID == bboClient->controlledMonsterID) && (!BeastTagAlong))
 			{
 				centerCellX = curMob->cellX;
 				centerCellY = curMob->cellY;
@@ -4195,8 +4752,11 @@ int GroundTestMode::ShootRayIntoScene(PumaInputEvent *pie, int justTest)
 				if (d < lastDist)
 				{
 					// this mob is the new candidata
-					candidate = curMob;
-					lastDist = d;
+					if (curMob->type != SMOB_GROUND_EFFECT)
+					{
+						candidate = curMob;
+						lastDist = d;
+					}
 				}
 			}
 
@@ -4247,8 +4807,11 @@ int GroundTestMode::ShootRayIntoScene(PumaInputEvent *pie, int justTest)
 				if (d < lastDist)
 				{
 					// this mob is the new candidata
-					candidate = curMob;
-					lastDist = d;
+					if (curMob->type != SMOB_GROUND_EFFECT)
+					{
+						candidate = curMob;
+						lastDist = d;
+					}
 				}
 			}
 		}
@@ -4513,6 +5076,7 @@ void GroundTestMode::RemoveActionButtons(int eraseGiveMoneyDialog)
 
 		giveMoneyMode = FALSE;
 		namePetMode = FALSE;
+		transfercustommode = FALSE;
 	}
 								  /*
 	// remove all previous action buttons
@@ -4532,20 +5096,67 @@ void GroundTestMode::RemoveActionButtons(int eraseGiveMoneyDialog)
 void GroundTestMode::UpdateActionButtons(int buttonIndex, int isPlayer, 
 													  int mx, int my, int type)
 {
+	if (!bboClient->lastmacrotime)
+		bboClient->lastmacrotime = timeGetTime();
+	bboClient->thismacrotime = timeGetTime();
+	if (bboClient->lastmacrotime > bboClient->thismacrotime)
+		bboClient->lastmacrotime = bboClient->thismacrotime;
 	UIRectTextButton *tButt; 
 //	UIRectEditLine *tEdit;
 //	UIRectTextBox *tBox;
 //	UIRect *uiRect;
-
+	int dirty_macro_user = false;
+	int delta = (int)(bboClient->thismacrotime - bboClient->lastmacrotime);
+	bboClient->lastmacrotime = bboClient->thismacrotime; // we got delta so update last time.
 	int curY = my + 10;
 	int centerX = puma->ScreenW()/2;
 	int centerY = puma->ScreenH()/2;
-
+	logx10 = logx9;
+	logx9 = logx8;
+	logx8 = logx7;
+	logx7 = logx6;
+	logx6 = logx5;
+	logx5 = logx4;
+	logx4 = logx3;
+	logx3 = logx2;
+	logx2 = logx1;
+	logx1 = mx;
+	logy10 = logy9;
+	logy9 = logy8;
+	logy8 = logy7;
+	logy7 = logy6;
+	logy6 = logy5;
+	logy5 = logy4;
+	logy4 = logy3;
+	logy3 = logy2;
+	logy2 = logy1;
+	logy1 = my;
+    // set dirty_macro_user flag if any pairs match both mx and my
+	if (my == logy2 && mx == logx2)
+		dirty_macro_user = true;
+	if (my == logy3 && mx == logx3)
+		dirty_macro_user = true;
+	if (my == logy4 && mx == logx4)
+		dirty_macro_user = true;
+	if (my == logy5 && mx == logx5)
+		dirty_macro_user = true;
+	if (my == logy6 && mx == logx6)
+		dirty_macro_user = true;
+	if (my == logy7 && mx == logx7)
+		dirty_macro_user = true;
+	if (my == logy8 && mx == logx8)
+		dirty_macro_user = true;
+	if (my == logy9 && mx == logx9)
+		dirty_macro_user = true;
+	if (my == logy10 && mx == logx10)
+		dirty_macro_user = true;
+	if (delta < 500) // accidentall double click check
+		dirty_macro_user = false;
 	if (mx < 50)
 		mx = 50;
 	if (mx > puma->ScreenW() - 100)
 		mx = puma->ScreenW() - 100;
-
+	dirty_macro_user = false; // hotkeys are back, no point with the anticheay for now.
 	StartAddingMenuButtons(mx, curY);
 
 	int oldAlpha = uiAlpha;
@@ -4565,6 +5176,12 @@ void GroundTestMode::UpdateActionButtons(int buttonIndex, int isPlayer,
 		   actionWindow->isActive  = TRUE;
 
 			AddMenuTop();
+			if (bboClient->cheats==0)
+			if ((rand() % 2) && dirty_macro_user) // 50% chance if you tripped it
+			{
+				AddMenuButton("Do Nothing", ACTION_TYPE_MAX);
+				AddMenuSpacer();
+			}
 			// add new action buttons
 			if (bboClient->selectedMOB)
 			{
@@ -4580,15 +5197,33 @@ void GroundTestMode::UpdateActionButtons(int buttonIndex, int isPlayer,
 							AddMenuButton("Attack", ACTION_TYPE_ATTACK);
 						}
 					}
+					else if ((bboClient->selectedMOB->type == SMOB_TOKEN ) && // it's a token
+						((bboClient->curMapSizeX<10) && (bboClient->curMapSizeY<10)) && // AND you are in a guild tower
+						(strlen(bboClient->playerAvatar->guildName) !=0 )) // AND you have a guild name
+					{
+						
+						// interact with a Token in guiild tower
+						
+						AddMenuButton("Go to Tree", ACTION_TYPE_TELEPORT);
+					}
 					else if (bboClient->selectedMOB->type == SMOB_MONSTER)
 					{
 						// interact with a monster
-						AddMenuButton("Attack", ACTION_TYPE_ATTACK);
-
+						// beastmasters have new options, but the client can't yet tell the differenc between monsters unless you have taken it over.
+						if (bboClient->selectedMOB->mobID!=bboClient->controlledMonsterID)
+							AddMenuButton("Attack", ACTION_TYPE_ATTACK); // controlled monster can't attack itself, pet or not.
+						else if (playerIsBeastmaster)						// else you ARE controllin it, and in beastmaster mode.
+						{
+							AddMenuButton("Recall", ACTION_TYPE_BM_RECALL); // give the choice to return it to your side.
+						}
 						if (playerIsAdmin)
 						{
 							AddMenuButton("Control", ACTION_TYPE_CONTROL);
 							AddMenuButton("Release", ACTION_TYPE_RELEASE);
+						}
+						if (playerIsBeastmaster)							// maybe show tame option
+						{
+								AddMenuButton("Begin Taming",ACTION_TYPE_BM_TAME); // check on server side if tame action is valid.
 						}
 					}
 					else if (bboClient->selectedMOB->type == SMOB_CHEST)
@@ -4597,6 +5232,9 @@ void GroundTestMode::UpdateActionButtons(int buttonIndex, int isPlayer,
 						{
 							// interact with a chest
 							AddMenuButton("Open", ACTION_TYPE_OPEN);
+							if ((bboClient->curMapSizeX<10) && (bboClient->curMapSizeY<10) && (strlen(bboClient->playerAvatar->guildName)!=0)) // only towers are this small, and need to be in a guild
+							AddMenuButton("Use Stash", ACTION_TYPE_BANK);
+
 						}
 					}
 					else if (bboClient->selectedMOB->type == SMOB_TRAINER)
@@ -4619,31 +5257,56 @@ void GroundTestMode::UpdateActionButtons(int buttonIndex, int isPlayer,
 					else if (bboClient->selectedMOB->type == SMOB_TOWNMAGE)
 					{
 						// interact with a town mage
-						AddMenuButton("Listen", ACTION_TYPE_LISTEN, uiPopUpLongArt,-70,132,2);
-						AddMenuButton("Heal (180g)", ACTION_TYPE_HEAL, 
-							           uiPopUpLongArt,-70,132,2);
-						AddMenuButton("Teleport Forward (400g)", ACTION_TYPE_TELEPORT, 
-							           uiPopUpLongArt,-70,132,2);
-						AddMenuButton("Teleport Back (400g)", ACTION_TYPE_TELEPORT_BACK, 
-							           uiPopUpLongArt,-70,132,2);
-						AddMenuButton("Use Account Storage", ACTION_TYPE_BANK, 
-							           uiPopUpLongArt,-70,132,2);
+						AddMenuButton("Listen", ACTION_TYPE_LISTEN, uiPopUpLongArt, -70, 132, 2);
+						AddMenuButton("Heal (180g)", ACTION_TYPE_HEAL,
+							uiPopUpLongArt, -70, 132, 2);
+						AddMenuButton("Teleport Forward (400g)", ACTION_TYPE_TELEPORT,
+							uiPopUpLongArt, -70, 132, 2);
+						AddMenuButton("Teleport Back (400g)", ACTION_TYPE_TELEPORT_BACK,
+							uiPopUpLongArt, -70, 132, 2);
+						AddMenuButton("Use Account Storage", ACTION_TYPE_BANK,
+							uiPopUpLongArt, -70, 132, 2);
 					}
-					else if (bboClient->selectedMOB->type != SMOB_TOWER && 
+					else if (bboClient->selectedMOB->type == SMOB_BOMB)
+					{
+						// interact with a bomb.
+						// in future this will let you disarm the bomb.
+					}
+					else if (bboClient->selectedMOB->type == SMOB_MALL_DIRECTOR)
+					{
+						// interact with the mall director
+						AddMenuButton("Help", ACTION_TYPE_LISTEN); // director says help text.
+						AddMenuButton("Browse", ACTION_TYPE_TRADE);  // director opens special trade window with all items for sale, with mouseover text
+					}
+					else if (bboClient->selectedMOB->type == SMOB_PLAYERMERCHANT)
+					{
+						// interact with a created stall
+						AddMenuButton("Help", ACTION_TYPE_LISTEN); // merchant gives instructions if it's yours.
+						AddMenuButton("Browse", ACTION_TYPE_TRADE);  // director opens special trade window with all items for sale, with mouseover text
+					}
+					else if (bboClient->selectedMOB->type != SMOB_TOWER &&
 					         bboClient->selectedMOB->type != SMOB_WARP_POINT && 
-						      bboClient->selectedMOB->type != SMOB_TOKEN)
+						      bboClient->selectedMOB->type != SMOB_TOKEN &&
+						bboClient->selectedMOB->type != SMOB_GROUND_EFFECT)
 					{
 						// interact with a trader
 						AddMenuButton("Trade", ACTION_TYPE_TRADE);
 						AddMenuSpacer();
 						AddMenuButton("Sell All Simple Loot", ACTION_TYPE_SELLALLGREEN,
 							           NULL, -50,103,2);
-						AddMenuButton("Sell All Meat", ACTION_TYPE_SELLALLMEAT,
+						AddMenuButton("Salt All Meat", ACTION_TYPE_SELLALLMEAT,
 							           NULL, -50,103,2);
 						AddMenuButton("Sell All Bombs", ACTION_TYPE_SELLALLBOMBS,
 							           NULL, -50,103,2);
 						AddMenuButton("Sell All EarthKeys", ACTION_TYPE_SELLALLKEYS,
 							           NULL, -50,103,2);
+					}
+				}
+				else if (playerIsBeastmaster && (bboClient->selectedMOB == bboClient->playerAvatar))  // beastmasters have a special menu
+				{
+					if (BeastTagAlong)  // if we aren't controlling a mob directly.
+					{
+						AddMenuButton("Send Out", ACTION_TYPE_BM_CONTROL);  // beastmaster can take it over with a click on yourself. yay.
 					}
 				}
 			}
@@ -4669,6 +5332,12 @@ void GroundTestMode::UpdateActionButtons(int buttonIndex, int isPlayer,
 //		UIRectWindow *listWindow = (UIRectWindow *) actionWindow->childRectList.Find(GTM_BUTTON_STATSWIN);
 
 		AddMenuTop();
+		if (bboClient->cheats == 0)				// disable macro check if cheat client.
+			if ((rand() % 2) && dirty_macro_user) // 50% chance if you tripped it
+		{
+			AddMenuButton("Do Nothing", ACTION_TYPE_MAX);
+			AddMenuSpacer();
+		}
 		if (isPlayer)
 		{
 			// interact with selected item in player's inventory
@@ -4685,6 +5354,7 @@ void GroundTestMode::UpdateActionButtons(int buttonIndex, int isPlayer,
 				AddMenuButton("Include", ACTION_TYPE_INCLUDE);
 				AddMenuButton("Include 5", ACTION_TYPE_INCLUDE5);
 				AddMenuButton("Include 20", ACTION_TYPE_INCLUDE20);
+				AddMenuButton("Include #", ACTION_TYPE_INCLUDECUSTOM);
 				AddMenuButton("Include All", ACTION_TYPE_INCLUDEALL);
 				AddMenuSpacer();
 				AddMenuButton("Use", ACTION_TYPE_WIELD);
@@ -4694,6 +5364,7 @@ void GroundTestMode::UpdateActionButtons(int buttonIndex, int isPlayer,
 				AddMenuButton("Exclude", ACTION_TYPE_EXCLUDE);
 				AddMenuButton("Exclude 5", ACTION_TYPE_EXCLUDE5);
 				AddMenuButton("Exclude 20", ACTION_TYPE_EXCLUDE20);
+				AddMenuButton("Exclude #", ACTION_TYPE_EXCLUDECUSTOM);
 				AddMenuButton("Exclude All", ACTION_TYPE_EXCLUDEALL);
 				AddMenuBottom();
 				return; // items in workbench can only be excluded.
@@ -4728,12 +5399,17 @@ void GroundTestMode::UpdateActionButtons(int buttonIndex, int isPlayer,
 			case INVOBJ_STAFF:
 			case INVOBJ_GEOPART:
 			case INVOBJ_EARTHKEY:
+			case INVOBJ_EARTHKEY_RESUME:
+			case INVOBJ_DOOMKEY:
+			case INVOBJ_DOOMKEY_ENTRANCE:
+			case INVOBJ_STABLED_PET:
 				if (fullWindow->childRectList.Find(GTM_BUTTON_YOU_SECURE_WIN))
 				{
 					AddMenuSpacer();
 					AddMenuButton("Trade", ACTION_TYPE_GIVE);
 					AddMenuButton("Trade 5", ACTION_TYPE_GIVE5);
 					AddMenuButton("Trade 20", ACTION_TYPE_GIVE20);
+					AddMenuButton("Trade #", ACTION_TYPE_GIVECUSTOM);
 					AddMenuButton("Trade All", ACTION_TYPE_GIVEALL);
 				}
 				else if (fullWindow->childRectList.Find(GTM_BUTTON_OTHERWIN))
@@ -4742,6 +5418,7 @@ void GroundTestMode::UpdateActionButtons(int buttonIndex, int isPlayer,
 					AddMenuButton("Sell", ACTION_TYPE_GIVE);
 					AddMenuButton("Sell 5", ACTION_TYPE_GIVE5);
 					AddMenuButton("Sell 20", ACTION_TYPE_GIVE20);
+					AddMenuButton("Sell #", ACTION_TYPE_GIVECUSTOM);
 					AddMenuButton("Sell All", ACTION_TYPE_GIVEALL);
 				}
 				else if (fullWindow->childRectList.Find(GTM_BUTTON_BANKWIN))
@@ -4750,6 +5427,7 @@ void GroundTestMode::UpdateActionButtons(int buttonIndex, int isPlayer,
 					AddMenuButton("Stash", ACTION_TYPE_GIVE);
 					AddMenuButton("Stash 5", ACTION_TYPE_GIVE5);
 					AddMenuButton("Stash 20", ACTION_TYPE_GIVE20);
+					AddMenuButton("Stash #", ACTION_TYPE_GIVECUSTOM);
 					AddMenuButton("Stash All", ACTION_TYPE_GIVEALL);
 				}
 
@@ -4788,8 +5466,36 @@ void GroundTestMode::UpdateActionButtons(int buttonIndex, int isPlayer,
 					sprintf(tempText, "Activate");
 					AddMenuButton(tempText, ACTION_TYPE_ACTIVATE);
 				}
+				if (INVOBJ_STABLED_PET == playerInv[buttonIndex].type)
+				{
+					char tempText[1024];
+					AddMenuSpacer();
+					sprintf(tempText, "Let Out");
+					AddMenuButton(tempText, ACTION_TYPE_ACTIVATE);
+				}
 
 				if (INVOBJ_EARTHKEY == playerInv[buttonIndex].type)
+				{
+					char tempText[1024];
+					AddMenuSpacer();
+					sprintf(tempText, "Activate");
+					AddMenuButton(tempText, ACTION_TYPE_ACTIVATE);
+				}
+				if (INVOBJ_EARTHKEY_RESUME == playerInv[buttonIndex].type)
+				{
+					char tempText[1024];
+					AddMenuSpacer();
+					sprintf(tempText, "Activate");
+					AddMenuButton(tempText, ACTION_TYPE_ACTIVATE);
+				}
+				if (INVOBJ_DOOMKEY == playerInv[buttonIndex].type)
+				{
+					char tempText[1024];
+					AddMenuSpacer();
+					sprintf(tempText, "Activate");
+					AddMenuButton(tempText, ACTION_TYPE_ACTIVATE);
+				}
+				if (INVOBJ_DOOMKEY_ENTRANCE == playerInv[buttonIndex].type)
 				{
 					char tempText[1024];
 					AddMenuSpacer();
@@ -4806,6 +5512,7 @@ void GroundTestMode::UpdateActionButtons(int buttonIndex, int isPlayer,
 					AddMenuButton("Trade", ACTION_TYPE_GIVE);
 					AddMenuButton("Trade 5", ACTION_TYPE_GIVE5);
 					AddMenuButton("Trade 20", ACTION_TYPE_GIVE20);
+					AddMenuButton("Trade #", ACTION_TYPE_GIVECUSTOM);
 					AddMenuButton("Trade All", ACTION_TYPE_GIVEALL);
 				}
 				else if (fullWindow->childRectList.Find(GTM_BUTTON_OTHERWIN))
@@ -4814,6 +5521,7 @@ void GroundTestMode::UpdateActionButtons(int buttonIndex, int isPlayer,
 					AddMenuButton("Sell", ACTION_TYPE_GIVE);
 					AddMenuButton("Sell 5", ACTION_TYPE_GIVE5);
 					AddMenuButton("Sell 20", ACTION_TYPE_GIVE20);
+					AddMenuButton("Sell #", ACTION_TYPE_GIVECUSTOM);
 					AddMenuButton("Sell All", ACTION_TYPE_GIVEALL);
 				}
 				else if (fullWindow->childRectList.Find(GTM_BUTTON_BANKWIN))
@@ -4822,6 +5530,7 @@ void GroundTestMode::UpdateActionButtons(int buttonIndex, int isPlayer,
 					AddMenuButton("Stash", ACTION_TYPE_GIVE);
 					AddMenuButton("Stash 5", ACTION_TYPE_GIVE5);
 					AddMenuButton("Stash 20", ACTION_TYPE_GIVE20);
+					AddMenuButton("Stash #", ACTION_TYPE_GIVECUSTOM);
 					AddMenuButton("Stash All", ACTION_TYPE_GIVEALL);
 				}
 				break;
@@ -4839,6 +5548,7 @@ void GroundTestMode::UpdateActionButtons(int buttonIndex, int isPlayer,
 				AddMenuButton("Retract", ACTION_TYPE_RETRACT);
 				AddMenuButton("Retract 5", ACTION_TYPE_RETRACT5);
 				AddMenuButton("Retract 20", ACTION_TYPE_RETRACT20);
+				AddMenuButton("Retract #", ACTION_TYPE_RETRACTCUSTOM);
 				AddMenuButton("Retract All", ACTION_TYPE_RETRACTALL);
 			}
 			else
@@ -4850,6 +5560,7 @@ void GroundTestMode::UpdateActionButtons(int buttonIndex, int isPlayer,
 				AddMenuButton("Get", ACTION_TYPE_BUY);
 				AddMenuButton("Get 5", ACTION_TYPE_BUY5);
 				AddMenuButton("Get 20", ACTION_TYPE_BUY20);
+				AddMenuButton("Get #", ACTION_TYPE_BUYCUSTOM);
 				AddMenuButton("Get All", ACTION_TYPE_BUYALL);
 			}
 			selectedIndex = buttonIndex; // last item button index clicked on
@@ -5183,12 +5894,13 @@ void GroundTestMode::HandleExtendedInfo(char* rawData, int size)
 	int eggType;
 	char eggVal;
 	int bladeAge;
+	int bladeAgeCapped;
 
 	long timeLeft, daysLeft, hoursLeft, minutesLeft;
 	unsigned long skillPoints;
 	unsigned long skillLevel;
 
-	unsigned short poison, heal, slow, blind, shock;
+	unsigned short poison, heal, slow, blind, shock, tame;
 
 	int bombType, fuseDelay, bladeGlamour;
 	float bombQuality;
@@ -5211,16 +5923,30 @@ void GroundTestMode::HandleExtendedInfo(char* rawData, int size)
 		sprintf(&tempText[strlen(tempText)],"It has a to-hit bonus of %d,\n", toHit);
 		sprintf(&tempText[strlen(tempText)],"and will do %d points damage,\nconsidering your physical stat\nand other magic effects.\n", damageDone);
 
-		//*stream >> poison;
-		//*stream >> heal;
+		*stream >> poison;
+		*stream >> heal;
 		*stream >> slow;
 		*stream >> blind;
 		*stream >> shock;
 		*stream >> bladeAge;
 		*stream >> bladeGlamour;
+		*stream >> tame;
+		bladeAgeCapped = bladeAge;
+		if (bladeAgeCapped > 22000 && bboClient->cheats==0)  // when not cheating, lie about the age.
+			bladeAgeCapped = 22000;
 
-		if (bladeAge >= 15000)
-			sprintf(&tempText[strlen(tempText)],"It is ancient (%d).\n", bladeAge);
+		if (bladeAge >= 259500)
+			sprintf(&tempText[strlen(tempText)], "Ding! Shard is done.(%d)!\n", bladeAgeCapped);
+		else if (bladeAge >= 110000)
+			sprintf(&tempText[strlen(tempText)], "It is magical (%d).\n", bladeAgeCapped);
+		else if (bladeAge >= 88000)
+			sprintf(&tempText[strlen(tempText)], "It is finely aged (%d).\n", bladeAgeCapped);
+		else if (bladeAge >= 66000)
+			sprintf(&tempText[strlen(tempText)], "It is incredibly ancient (%d).\n", bladeAgeCapped);
+		else if (bladeAge >= 44000)
+			sprintf(&tempText[strlen(tempText)], "It is very ancient (%d).\n", bladeAgeCapped);
+		else if (bladeAge >= 15000)
+			sprintf(&tempText[strlen(tempText)], "It is ancient (%d).\n", bladeAgeCapped);
 		else if (bladeAge >= 10000)
 			sprintf(&tempText[strlen(tempText)],"It is venerable (%d).\n", bladeAge);
 		else if (bladeAge >= 5000)
@@ -5232,20 +5958,20 @@ void GroundTestMode::HandleExtendedInfo(char* rawData, int size)
 		else
 			sprintf(&tempText[strlen(tempText)],"It is new (%d).\n", bladeAge);
 
-		/*
 		if (poison > 0)
-			sprintf(&tempText[strlen(tempText)],"It can poison at level %d.\n", poison);
+			sprintf(&tempText[strlen(tempText)],"It can reduce resistance at level %d.\n", poison);
 		if (heal > 0)
-			sprintf(&tempText[strlen(tempText)],"It heals in combat at level %d.\n", heal);
-		*/
+			sprintf(&tempText[strlen(tempText)],"It creates loot at level %d.\n", heal);
 		if (slow > 0)
 			sprintf(&tempText[strlen(tempText)],"It can slow at level %d.\n", slow);
 		if (blind > 0)
 			sprintf(&tempText[strlen(tempText)],"It can blind at level %d.\n", blind);
 		
 		if (shock > 0)
-			sprintf(&tempText[strlen(tempText)],"It can shock at level %d.\n", shock);
-		
+			sprintf(&tempText[strlen(tempText)], "It can shock at level %d.\n", shock);
+		if (tame > 0)
+			sprintf(&tempText[strlen(tempText)], "It can tame at level %d if it's a \nTaming Scythe.\n", tame);
+
 
 		if (bladeGlamour >= BLADE_GLAMOUR_TRAILWHITE)
 			sprintf(&tempText[strlen(tempText)],"It contains a %s.\n", 
@@ -5444,19 +6170,50 @@ void GroundTestMode::HandleExtendedInfo(char* rawData, int size)
 
 		break;
 
+	case INVOBJ_EARTHKEY_RESUME:
+		*stream >> ekPower;
+		*stream >> ekMonster[0];
+		*stream >> ekMonster[1];
+		*stream >> ekWidth;
+		*stream >> ekHeight;
+		if (ekWidth < 0)
+			ekWidth *= -1;
+		if (ekHeight < 0)
+			ekHeight *= -1;
+		sprintf(&tempText[strlen(tempText)], "This item can recreate a\ndungeon %3.2f meters below.\n", ekPower + 20);
+		sprintf(&tempText[strlen(tempText)], "It is %d by %d in size, and\n", ekWidth, ekHeight);
+		if (-1 == ekMonster[1])
+			sprintf(&tempText[strlen(tempText)], "is a lair of the %s and its kin.\n", monsterData[ekMonster[0]]->name);
+		else
+			sprintf(&tempText[strlen(tempText)], "is populated by %s and \n%s monsters, and their kin.\n", monsterData[ekMonster[0]]->name, monsterData[ekMonster[1]]->name);
+			sprintf(&tempText[strlen(tempText)], "It will be consumed if you leave, die, or enter a non skiller.\n");
+
+		break;
 	case INVOBJ_EARTHKEY:
 		*stream >> ekPower;
 		*stream >> ekMonster[0];
 		*stream >> ekMonster[1];
 		*stream >> ekWidth;
 		*stream >> ekHeight;
-
-		sprintf(&tempText[strlen(tempText)],"This EarthKey can transport you to a\ndungeon %3.2f meters below.\n", ekPower + 20);
-		sprintf(&tempText[strlen(tempText)],"It is %d by %d in size, and\n", ekWidth, ekHeight);
+		if (ekWidth < 0)
+			ekWidth *= -1;
+		if (ekHeight < 0)
+			ekHeight *= -1;
+		sprintf(&tempText[strlen(tempText)], "This EarthKey can transport you to a\ndungeon %3.2f meters below.\n", ekPower + 20);
+		sprintf(&tempText[strlen(tempText)], "It is %d by %d in size, and\n", ekWidth, ekHeight);
 		if (-1 == ekMonster[1])
-			sprintf(&tempText[strlen(tempText)],"is a lair of the %s and its kin.\n", monsterData[ekMonster[0]]->name);
+			sprintf(&tempText[strlen(tempText)], "is a lair of the %s and its kin.\n", monsterData[ekMonster[0]]->name);
 		else
-			sprintf(&tempText[strlen(tempText)],"is populated by %s and \n%s monsters, and their kin.\n", monsterData[ekMonster[0]]->name, monsterData[ekMonster[1]]->name);
+			sprintf(&tempText[strlen(tempText)], "is populated by %s and \n%s monsters, and their kin.\n", monsterData[ekMonster[0]]->name, monsterData[ekMonster[1]]->name);
+		break;
+	case INVOBJ_DOOMKEY:
+		*stream >> ekPower;
+
+		sprintf(&tempText[strlen(tempText)], "This will transport you to level %d\n of the Tower of Infinity.\n", (int)ekPower);
+		break;
+	case INVOBJ_DOOMKEY_ENTRANCE:
+
+		sprintf(&tempText[strlen(tempText)], "This will transport you into the Tower of Infinity.\n");
 		break;
 
 	case INVOBJ_BOMB:
@@ -5480,7 +6237,10 @@ void GroundTestMode::HandleExtendedInfo(char* rawData, int size)
 
 	case INVOBJ_SIMPLE:
 		if (INVSTATUS_QUEST_ITEM != status)
-			sprintf(&tempText[strlen(tempText)],"This item has no use.  Sell it for cash.\n");
+			sprintf(&tempText[strlen(tempText)], "This item has no use.  Sell it for cash.\n");
+		break;
+	case INVOBJ_STABLED_PET:
+			sprintf(&tempText[strlen(tempText)], "This item has a pet inside it.\nIt cannot be stashed, traded, or sold.\nClick it and choose Let Out\nin a town to let it out\nif you don't have one already out.");
 		break;
 	}
 
@@ -5565,7 +6325,7 @@ void GroundTestMode::ClearEverythingFromScreen(void)
 
 	giveMoneyMode = FALSE;
 	namePetMode = FALSE;
-
+	transfercustommode = FALSE;
 	RemoveNonInvWindows();
 	if (fullWindow->childRectList.Find(GTM_BUTTON_STATSWIN))
 	{

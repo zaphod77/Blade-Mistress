@@ -14,6 +14,7 @@ public:
 	void Load(void);
 	int CanMove(int srcX, int srcY, int dstX, int dstY);
 	int Color    (int x, int y);
+	int type;
 
 	virtual void DoMonsterDrop(BBOSMonster *monster);
 	virtual void DoMonsterDropSpecial(BBOSMonster *monster, int type);

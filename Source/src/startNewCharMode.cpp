@@ -24,7 +24,7 @@
 
 #include "clientOnly.h"
 
-#include "BBOServer.h"
+// #include "BBOServer.h"
 #include "./network/client.h"
 #include "./helper/PasswordHash.h"
 #include ".\helper\crypto.h"
@@ -38,7 +38,7 @@ enum
 	SNCM_BUTTON_TEXT
 };
 
-extern BBOServer *server;
+// extern BBOServer *server;
 extern Client *	lclient;
 
 extern int playerAvatarID;
@@ -79,13 +79,13 @@ int FAR PASCAL StartNewCharModeProcess(UIRect *curUIRect, int type, long x, shor
       if (UIRECT_MOUSE_LUP == type)
       {
 			button1Sound->PlayNo3D();
-			sprintf(messPlayerNew.name, curStartNewCharMode->name);
+			sprintf_s(messPlayerNew.name, curStartNewCharMode->name);
 
 			unsigned char salt[256];
 			sprintf_s((char*)&salt[0], 256, "%s-%s", "BladeMistress", curStartNewCharMode->name);
 
 			// Hash the password
-			unsigned char hashPass[HASH_BYTE_SIZE] = { 0 };
+			unsigned char hashPass[HASH_BYTE_SIZE+1] = { 0 };
 			if (!PasswordHash::CreateStandaloneHash((const unsigned char*)curStartNewCharMode->pass, salt, 6969, hashPass))
 			{
 				newGameMode = new SimpleMessageMode("There was an error sending your credentials to the server.\nPlease contact your server admin.", 0, "SIMPLE_MESSAGE_MODE");
@@ -95,7 +95,7 @@ int FAR PASCAL StartNewCharModeProcess(UIRect *curUIRect, int type, long x, shor
 
 			// Send hashed password
 			memcpy(messPlayerNew.pass, hashPass, HASH_BYTE_SIZE);
-			messPlayerNew.pass[HASH_BYTE_SIZE] = 0;
+			messPlayerNew.pass[HASH_BYTE_SIZE+1] = 0;
 
 			messPlayerNew.uniqueId = GetUniqueComputerId();
 			CryptoString(messPlayerNew.name);
@@ -114,8 +114,8 @@ int FAR PASCAL StartNewCharModeProcess(UIRect *curUIRect, int type, long x, shor
 StartNewCharMode::StartNewCharMode(char *n, char *p, int doid, char *doname) : GameMode(doid,doname)
 {
 	curStartNewCharMode = this;
-	sprintf(name,n);
-	sprintf(pass,p);
+	sprintf_s(name,n);
+	sprintf_s(pass,p);
 }
 
 //******************************************************************

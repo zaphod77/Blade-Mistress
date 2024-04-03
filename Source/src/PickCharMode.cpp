@@ -26,7 +26,7 @@
 
 #include "clientOnly.h"
 
-#include "BBOServer.h"
+// #include "BBOServer.h"
 #include "./network/client.h"
 #include "avatarTexture.h"
 #include "particle2.h"
@@ -58,7 +58,7 @@ enum
 	PCM_BUTTON_CHAR_7
 };
 
-extern BBOServer *server;
+// extern BBOServer *server;
 extern Client *	lclient;
 
 extern int playerAvatarID;
@@ -262,6 +262,7 @@ int FAR PASCAL PickCharModeProcess(UIRect *curUIRect, int type, long x, short y)
 				curPickCharMode->statsToChange->creative =
 					curPickCharMode->statsToChange->magical =
 					curPickCharMode->statsToChange->physical = 4;
+				curPickCharMode->statsToChange->beast = 1;
 //				sprintf(curPickCharMode->lastName, curPickCharMode->newName->text);
 //				sprintf(curPickCharMode->statsToChange->name,curPickCharMode->lastName);
 			
@@ -1094,10 +1095,11 @@ void PickCharMode::HandleMessages(void)
 
 			sprintf(lastName, messAvatarStatsPtr->name);
 			tBox = (UIRectTextBox *) fullWindow->childRectList.Find(PCM_BUTTON_TEXT);
-			sprintf(tempText,"Character %d:   %s\nPhysical %d  Magical %d  Creative %d\nLevel %ld        Cash %ld\nClick on the Enter Game button\nto take this character into the game!",
-				         curCharacterIndex+1, lastName, messAvatarStatsPtr->physical, 
-							messAvatarStatsPtr->magical, messAvatarStatsPtr->creative,
-							messAvatarStatsPtr->cLevel, messAvatarStatsPtr->cash);
+			sprintf(tempText,"Character %d:   %s\nPhysical %d  Magical %d  Creative %d  Beast %d\nLevel %ld        Cash %ld\nClick on the Enter Game button\nto take this character into the game!",
+						curCharacterIndex+1, lastName, messAvatarStatsPtr->physical, 
+						messAvatarStatsPtr->magical, messAvatarStatsPtr->creative,
+						messAvatarStatsPtr->beast, messAvatarStatsPtr->cLevel, 
+						messAvatarStatsPtr->cash);
 			tBox->SetText(tempText);
 
 			if (!avTexture)

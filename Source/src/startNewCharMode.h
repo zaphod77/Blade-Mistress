@@ -28,7 +28,7 @@ public:
 
 	UIRectWindow *fullWindow;
 //	char string[2048];
-	char name[32], pass[12];
+	char name[32], pass[13];
 
 };
 

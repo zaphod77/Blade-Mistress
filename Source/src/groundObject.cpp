@@ -753,6 +753,7 @@ void GroundObject::CreateStaticPositions(void)
 	srand(1);
 
 	// add town buildings
+	
 	for (int t = 0; t < 12; ++t)
 	{
 		for (int t2 = 0; t2 < townList[t].size * 2; ++t2)

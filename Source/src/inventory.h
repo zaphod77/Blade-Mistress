@@ -35,7 +35,12 @@ enum
 
 	INVOBJ_GEOPART,
 	INVOBJ_EARTHKEY,
-
+	INVOBJ_DOOMKEY,
+	INVOBJ_DOOMKEY_ENTRANCE,
+	INVOBJ_EARTHKEY_RESUME,
+	INVOBJ_STABLED_PET,
+	INVOBJ_CTF_KEY,
+	INVOBJ_CTF_JOINER,
 	INVOBJ_MAX
 };
 
@@ -91,6 +96,7 @@ enum
 	POTION_TYPE_RECALL,
 	POTION_TYPE_DARK_RECALL,
 	POTION_TYPE_TOWER_RECALL,
+	POTION_TYPE_MERCHANT_SUMMON,
 	POTION_TYPE_MAX
 };
 
@@ -125,6 +131,7 @@ struct InvBlade
 	int slow;
 	int heal;
 	int lightning;
+	int tame;
 	int numOfHits;
 	int type;
 
@@ -140,6 +147,10 @@ struct InvBlade
 	int elatIngots;
 	int chitinIngots;
 	int maligIngots;
+	int tungstenIngots;
+	int titaniumIngots;
+	int azraelIngots;
+	int chromeIngots;
 
 	int GetIngotCount() {
 		return tinIngots + aluminumIngots +
@@ -147,15 +158,17 @@ struct InvBlade
 			zincIngots + adamIngots +
 			mithIngots + vizIngots +
 			elatIngots + chitinIngots +
-			maligIngots;
+			maligIngots + tungstenIngots +
+			titaniumIngots + azraelIngots +
+			chromeIngots;
 	}
 };
 
 //******************************************************************
 struct InvSkill
 {
-	unsigned long skillPoints;
-	unsigned long skillLevel;
+	unsigned long long skillPoints;
+	unsigned long long skillLevel;
 };
 
 //******************************************************************
@@ -266,7 +279,21 @@ struct InvEarthKey
 	float power;
 	int monsterType[2];
 };
-
+struct InvDoomKey
+{
+	int width, height;
+	float power;
+	int monsterType[7];
+};
+struct InvStabledPet
+{
+	int mtype, subType;
+	long maxHealth, health, damageDone, defense, toHit;
+	int healAmountPerSecond;
+	float magicResistance;
+	unsigned char r, g, b, a;
+	float sizeCoeff;
+};
 //******************************************************************
 class InventoryObject : public DataObject
 {
@@ -296,6 +323,7 @@ public:
 	Inventory(int type = MESS_INVENTORY_GROUND, void *p = NULL);
 	virtual ~Inventory();
 	void InventoryLoad(FILE *fp, float version);
+	void PriceLoad(FILE *fp, float version);
 	void InventorySave(FILE *fp);
 
 	void AddItemSorted(InventoryObject *item);

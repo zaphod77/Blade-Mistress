@@ -96,6 +96,7 @@ char questPlayerTypeDesc[QUEST_PLAYER_TYPE_MAX][64] =
 	{"warrior"},
 	{"mage"},
 	{"crafter"},
+	{"beastmaster"},
 	{"generalist"},
 	{"young"},
 	{"poor"}
@@ -128,7 +129,7 @@ char questRetrieveTypeDesc[MAGIC_MAX][64] =
 //********************************************************************************
 QuestPart::QuestPart(int type, char *doname)	: DataObject(type,doname)
 {
-
+	otherName[0] = 0; // make damn sure the string starts null terminated!!!!
 }
 
 //********************************************************************************
@@ -288,12 +289,12 @@ void Quest::ShortDesc(char *buffer, int goLong)
 		}
 		if (QUEST_TARGET_TOTEM == target->type)
 		{
-			sprintf(&buffer[strlen(buffer)], "It needs to be a %s totem, and the challenge of the last imbue cannot be less than half the work value.  ",
+			sprintf(&buffer[strlen(buffer)], "It needs to be a %s totem, and the challenge of the last imbue cannot be less than half the work value, or the totem must be better than diamond.  ",
          				totemTypeName[target->playerType]);
 		}
 		if (QUEST_TARGET_STAFF == target->type)
 		{
-			sprintf(&buffer[strlen(buffer)], "It needs to be a %s staff, and the challenge of the last imbue cannot be less than half the work value.  ",
+			sprintf(&buffer[strlen(buffer)], "It needs to be a %s staff, and the challenge of the last imbue cannot be less than half the work value, or the staff must be better than spruce.  ",
          				staffTypeName[target->playerType]);
 		}
 		if (QUEST_TARGET_NPC == target->type)
@@ -519,21 +520,29 @@ void Quest::Load(FILE *fp, float version)
 
 //	fscanf(fp,"%s", buff);
 	int done = FALSE;
+	int abortme =-1 ;
 	while (!done)
 	{
-		fscanf(fp,"%s", buff);
+		abortme=fscanf(fp,"%s", buff);
+		if (abortme < 1) // it failed to get a match
+			done = TRUE; // give up
+		else abortme = -1;
 		if (IsSame(buff, "PART"))
 		{
-			fscanf(fp,"%d", &tempInt);
-
+			abortme=fscanf(fp,"%d", &tempInt);
+			if (abortme < 1) // it failed to get a match
+				done = TRUE; // give up
+			else abortme = -1;
 			QuestPart *qp = new QuestPart(tempInt, "QUESTPART");
 			parts.Append(qp);
 
-			fscanf(fp,"%d %d %d %d %d %d %d %d %d\n", 
+			abortme=fscanf(fp,"%d %d %d %d %d %d %d %d %d\n", 
 				&qp->type, &qp->monsterType, &qp->monsterSubType,
 				&qp->mapType, &qp->mapSubType, &qp->x, &qp->y, &qp->range,
 				&qp->playerType);
-
+			if (abortme < 9) // it failed to grab all the numbers
+				done = TRUE; // break out of the loop
+			else abortme = -1;
 			if (version >= 2.20f)
 			{
 				LoadLineToString(fp, buff2);
@@ -545,7 +554,6 @@ void Quest::Load(FILE *fp, float version)
 		else if (IsSame(buff, "END"))
 			done = TRUE;
 	}
-
 }
 
 //********************************************************************************
@@ -1349,7 +1357,7 @@ void QuestManager::HandleQuestLine(char *tempText, Quest *q)
 			qp->mapSubType = 0; // needs to be correct
 
 			argPoint = NextWord(tempText,&linePoint);
-			qp->range = atof(&(tempText[argPoint])) * 100;
+			qp->range = atof(&(tempText[argPoint]));
 
 			if (qp->range < 1 || qp->range >= 1000000)
 			{

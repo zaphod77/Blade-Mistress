@@ -28,7 +28,20 @@ char dropAdj[10][32] =
 	{"Glorious"},
 	{"Royal"},
 	{"Fantastic"},
-	{"Ultimate"}
+	{"Ultimate"} // never actually used. a bug?
+};
+char valdrop[10][32] =
+{
+	{"Love You"},
+	{"Be Mine"},
+	{"Kiss Me"},
+	{"Me+You"},
+	{"Soul Mate"},
+	{"I'm Yours"},
+	{"True Love"},
+	{"Too Sweet"},
+	{"You Rock"},
+	{"Best Day"} // never actually used. a bug?
 };
 
 char dropAdj2[11][32] =
@@ -108,8 +121,9 @@ void SharedSpace::Load(void)
 //******************************************************************
 int SharedSpace::CanMove(int srcX, int srcY, int dstX, int dstY)
 {
+	// this sohudl never get called, as every shared space is a subclass!
 
-	return TRUE;
+	return FALSE;
 }
 
 //*******************************************************************************
@@ -201,7 +215,7 @@ void SharedSpace::SendToEveryFriend(BBOSAvatar *srcAvatar, int size, const void 
 }
 
 //*******************************************************************************
-void SharedSpace::SendToEveryoneNearBut(int handleToExclude, float x, float y, 
+void SharedSpace::SendToEveryoneNearBut(int handleToExclude, int x, int y, 
 													 int size, const void *dataPtr, int radius, 
 													 unsigned long flags)
 {
@@ -216,7 +230,7 @@ void SharedSpace::SendToEveryoneNearBut(int handleToExclude, float x, float y,
 		{
 			BBOSAvatar *curAvatar = (BBOSAvatar *) curMob;
 			if (curAvatar->socketIndex != handleToExclude && 
-				 (0 == flags || flags & curAvatar->infoFlags)
+				 (0 == flags || ((flags & curAvatar->infoFlags)==flags))
 				)
 			{
 				if (curAvatar->controlledMonster)
@@ -239,7 +253,7 @@ void SharedSpace::SendToEveryoneNearBut(int handleToExclude, float x, float y,
 }
 
 //*******************************************************************************
-void SharedSpace::IgnorableSendToEveryoneNear(BBOSAvatar *srcAvatar, float x, float y, int size, const void *dataPtr, int radius)
+void SharedSpace::IgnorableSendToEveryoneNear(BBOSAvatar *srcAvatar, int x, int y, int size, const void *dataPtr, int radius)
 {
 	std::vector<TagID> tempReceiptList;
 
@@ -374,6 +388,18 @@ void SharedSpace::DoMonsterDrop(Inventory *inv, BBOSMonster *monster)
 
 		char tempText[1024];
 		sprintf(tempText,"%s %s", dropAdj[adj], dropName[noun]);
+		// if spider or spidren
+		if ((monster->type == 8 || monster->type == 24) && (i < 2))
+		{
+			// silly joke drop
+			sprintf(tempText,"Missing Leg");
+		}
+		// if a heart
+		if (monster->type==33)
+		{
+			// then use valentine drop list
+			sprintf(tempText, "%s",valdrop[adj]);
+		}
 		++adj;
 		++noun;
 		InventoryObject *iObject = new InventoryObject(INVOBJ_SIMPLE,0,tempText);
@@ -387,19 +413,38 @@ void SharedSpace::DoMonsterDrop(Inventory *inv, BBOSMonster *monster)
 	}
 
 	// drop meat
-	if (2 == rand()%5)
+	if ((2 == rand() % 5) && (monster->type!=33)) // no heart meat
 	{
-		char tempText[1024];
-		sprintf(tempText,"%s Meat", monster->Name());
 
-		InventoryObject *iObject = new InventoryObject(INVOBJ_MEAT,0,tempText);
+		char tempText[1024];
+		sprintf(tempText, "%s Meat", monster->Name());
+
+		InventoryObject *iObject = new InventoryObject(INVOBJ_MEAT, 0, tempText);
 		iObject->mass = 1.0f;
 		iObject->value = 10;
 
-		InvMeat *im = (InvMeat *) iObject->extra;
-		im->type   = monster->type;
+		InvMeat *im = (InvMeat *)iObject->extra;
+		im->type = monster->type;
 		im->quality = monster->subType;
+		if (strstr(monster->Name(), "Rotted") != NULL)
+			im->age = 25;
+		DropItemToProperPlace(inv, monster, iObject, 0.5f);
+	}
+	if (monster->MoreMeat && 2 == rand() % 5) // second chance to drop if extra meat flag is set.
+	{
 
+		char tempText[1024];
+		sprintf(tempText, "%s Meat", monster->Name());
+
+		InventoryObject *iObject = new InventoryObject(INVOBJ_MEAT, 0, tempText);
+		iObject->mass = 1.0f;
+		iObject->value = 10;
+
+		InvMeat *im = (InvMeat *)iObject->extra;
+		im->type = monster->type;
+		im->quality = monster->subType;
+		if (strstr(monster->Name(), "Rotted") != NULL)
+			im->age = 25;
 		DropItemToProperPlace(inv, monster, iObject, 0.5f);
 	}
 
@@ -489,7 +534,6 @@ void SharedSpace::DoMonsterDropSpecial(Inventory *inv, BBOSMonster *monster, int
 		break;
 
 	case 3:
-	case 4:
 		iObject = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Red Dust");
 		exIn = (InvIngredient *)iObject->extra;
 		exIn->type     = INGR_RED_DUST;
@@ -503,8 +547,8 @@ void SharedSpace::DoMonsterDropSpecial(Inventory *inv, BBOSMonster *monster, int
 			monster->cellX, monster->cellY);
 		break;
 
-	case 5:
-	case 6:
+	case 4:
+//	case 5:
 		iObject = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing White Dust");
 		exIn = (InvIngredient *)iObject->extra;
 		exIn->type     = INGR_WHITE_DUST;
@@ -517,8 +561,7 @@ void SharedSpace::DoMonsterDropSpecial(Inventory *inv, BBOSMonster *monster, int
 			monster->Name(),
 			monster->cellX, monster->cellY);
 		break;
-/*
-	case 5:
+	case 5: // back in action again.
 		iObject = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Green Dust");
 		exIn = (InvIngredient *)iObject->extra;
 		exIn->type     = INGR_GREEN_DUST;
@@ -531,8 +574,7 @@ void SharedSpace::DoMonsterDropSpecial(Inventory *inv, BBOSMonster *monster, int
 			monster->Name(),
 			monster->cellX, monster->cellY);
 		break;
-
-	case 6:
+	case 6: // turned back on
 		iObject = new InventoryObject(INVOBJ_INGREDIENT,0,"Glowing Black Dust");
 		exIn = (InvIngredient *)iObject->extra;
 		exIn->type     = INGR_BLACK_DUST;
@@ -545,7 +587,6 @@ void SharedSpace::DoMonsterDropSpecial(Inventory *inv, BBOSMonster *monster, int
 			monster->Name(),
 			monster->cellX, monster->cellY);
 		break;
-  */
 	case 7:
 		iObject = new InventoryObject(INVOBJ_EXPLOSIVE,0,"Sulphur Brick");
 		exPlosive = (InvExplosive *)iObject->extra;
@@ -758,7 +799,7 @@ void SharedSpace::DoMonsterDropSpecial(Inventory *inv, BBOSMonster *monster, int
 		iObject = new InventoryObject(INVOBJ_STAFF,0,"Unnamed Staff");
 		exStaff = (InvStaff *)iObject->extra;
 		exStaff->type     = 0;
-		exStaff->quality  = 4;
+		exStaff->quality  = 4; // onyx
 
 		iObject->mass = 0.0f;
 		iObject->value = 500 * (3 + 1) * (3 + 1);
@@ -802,6 +843,199 @@ void SharedSpace::DoMonsterDropSpecial(Inventory *inv, BBOSMonster *monster, int
 			monster->Name(),
 			monster->cellX, monster->cellY);
 		break;
+	case 24:
+		iObject = new InventoryObject(INVOBJ_INGOT, 0, "Tungsten Ingot");
+		exIngot = (InvIngot *)iObject->extra;
+		exIngot->damageVal = 12;
+		exIngot->challenge = 12;
+		exIngot->r = 60;
+		exIngot->g = 60;
+		exIngot->b = 60;
+
+		iObject->mass = 1.0f;
+		iObject->value = 100000;
+		iObject->amount = 1;
+
+		fprintf(source, "TUNGSTEN INGOT, %s, %d, %d\n",
+			monster->Name(),
+			monster->cellX, monster->cellY);
+
+		break;
+	case 25:
+		iObject = new InventoryObject(INVOBJ_INGOT, 0, "Titanium Ingot");
+		exIngot = (InvIngot *)iObject->extra;
+		exIngot->damageVal = 13;
+		exIngot->challenge = 13;
+		exIngot->r = 182;
+		exIngot->g = 175;
+		exIngot->b = 169;
+
+		iObject->mass = 1.0f;
+		iObject->value = 110000;
+		iObject->amount = 1;
+
+		fprintf(source, "TITANIUM INGOT, %s, %d, %d\n",
+			monster->Name(),
+			monster->cellX, monster->cellY);
+
+		break;
+	case 26:
+		iObject = new InventoryObject(INVOBJ_INGOT, 0, "Azrael Ingot");
+		exIngot = (InvIngot *)iObject->extra;
+		exIngot->damageVal = 14;
+		exIngot->challenge = 14;
+		exIngot->r = 50;
+		exIngot->g = 250;
+		exIngot->b = 100;
+
+		iObject->mass = 1.0f;
+		iObject->value = 120000;
+		iObject->amount = 1;
+
+		fprintf(source, "AZRAEL INGOT, %s, %d, %d\n",
+			monster->Name(),
+			monster->cellX, monster->cellY);
+
+		break;
+	case 27:
+		iObject = new InventoryObject(INVOBJ_INGOT, 0, "Chrome Ingot");
+		exIngot = (InvIngot *)iObject->extra;
+		exIngot->damageVal = 15;
+		exIngot->challenge = 15;
+		exIngot->r = 128;
+		exIngot->g = 250;
+		exIngot->b = 0;
+
+		iObject->mass = 1.0f;
+		iObject->value = 130000;
+		iObject->amount = 1;
+
+		fprintf(source, "CHROME INGOT, %s, %d, %d\n",
+			monster->Name(),
+			monster->cellX, monster->cellY);
+
+		break;
+	case 28:
+		iObject = new InventoryObject(INVOBJ_TOTEM, 0, "Unnamed Totem");
+		extra = (InvTotem *)iObject->extra;
+		extra->type = 0;
+		extra->quality = 22; // moon
+
+		iObject->mass = 0.0f;
+		iObject->value = extra->quality * extra->quality * 14 + 1;
+		if (extra->quality > 12)
+			iObject->value = extra->quality * extra->quality * 14 + 1 + (extra->quality - 12) * 1600;
+		iObject->amount = 1;
+		UpdateTotem(iObject);
+
+		fprintf(source, "MOON TOTEM, %s, %d, %d\n",
+			monster->Name(),
+			monster->cellX, monster->cellY);
+		break;
+	case 29:
+		iObject = new InventoryObject(INVOBJ_TOTEM, 0, "Unnamed Totem");
+		extra = (InvTotem *)iObject->extra;
+		extra->type = 0;
+		extra->quality = 23; // star
+
+		iObject->mass = 0.0f;
+		iObject->value = extra->quality * extra->quality * 14 + 1;
+		if (extra->quality > 12)
+			iObject->value = extra->quality * extra->quality * 14 + 1 + (extra->quality - 12) * 1600;
+		iObject->amount = 1;
+		UpdateTotem(iObject);
+
+		fprintf(source, "STAR TOTEM, %s, %d, %d\n",
+			monster->Name(),
+			monster->cellX, monster->cellY);
+		break;
+	case 30:
+		iObject = new InventoryObject(INVOBJ_TOTEM, 0, "Unnamed Totem");
+		extra = (InvTotem *)iObject->extra;
+		extra->type = 0;
+		extra->quality = 24; // sun
+
+		iObject->mass = 0.0f;
+		iObject->value = extra->quality * extra->quality * 14 + 1;
+		if (extra->quality > 12)
+			iObject->value = extra->quality * extra->quality * 14 + 1 + (extra->quality - 12) * 1600;
+		iObject->amount = 1;
+		UpdateTotem(iObject);
+
+		fprintf(source, "SUN TOTEM, %s, %d, %d\n",
+			monster->Name(),
+			monster->cellX, monster->cellY);
+		break;
+	case 31:
+		iObject = new InventoryObject(INVOBJ_TOTEM, 0, "Unnamed Totem");
+		extra = (InvTotem *)iObject->extra;
+		extra->type = 0;
+		extra->quality = 25; // Super Pumpkin
+
+		iObject->mass = 0.0f;
+		iObject->value = extra->quality * extra->quality * 14 + 1;
+		if (extra->quality > 12)
+			iObject->value = extra->quality * extra->quality * 14 + 1 + (extra->quality - 12) * 1600;
+		iObject->amount = 1;
+		UpdateTotem(iObject);
+
+		fprintf(source, "REINDEER TOTEM, %s, %d, %d\n",
+			monster->Name(),
+			monster->cellX, monster->cellY);
+		break;
+	case 32:
+		iObject = new InventoryObject(INVOBJ_STAFF, 0, "Unnamed Staff");
+		exStaff = (InvStaff *)iObject->extra;
+		exStaff->type = 0;
+		exStaff->quality = 5; // elm staff
+
+		iObject->mass = 0.0f;
+		iObject->value = 500 * (3 + 1) * (3 + 1);
+		iObject->amount = 1;
+		UpdateStaff(iObject, 0);
+
+		fprintf(source, "ELM STAFF, %s, %d, %d\n",
+			monster->Name(),
+			monster->cellX, monster->cellY);
+		break;
+	case 33: // Merchant-in-a-box
+		iObject = new InventoryObject(INVOBJ_POTION, 0, "Merchant-in-a-Bra");
+		iObject->mass = 1.0f;
+		iObject->value = 1000;
+
+		ip = (InvPotion *)iObject->extra;
+		ip->type = POTION_TYPE_MERCHANT_SUMMON;
+		ip->subType = 0; // DOESN'T MATTER
+
+		fprintf(source, "PORTABLE MERCHANT, %s, %d, %d\n",
+			monster->Name(),
+			monster->cellX, monster->cellY);
+		break;
+	case 34:	// Drop Gold Dust
+		iObject = new InventoryObject(INVOBJ_INGREDIENT, 0, "Glowing Gold Dust");
+		exIn = (InvIngredient *)iObject->extra;
+		exIn->type = INGR_GOLD_DUST;
+		exIn->quality = 1;
+
+		iObject->mass = 0.0f;
+		iObject->value = 1000;
+		iObject->amount = 1;
+		fprintf(source, "GOLD DUST, %s, %d, %d\n",
+			monster->Name(),
+			monster->cellX, monster->cellY);
+		break;
+	case 35: // completely random egg
+		int color = rand() % 7;
+		int draketype = rand() % 4;
+		iObject = new InventoryObject(
+				INVOBJ_EGG, 0, dragonInfo[draketype][color].eggName);
+			iObject->mass = 1.0f;
+			iObject->value = 1000;
+			iObject->amount = 1;
+			InvEgg *im = (InvEgg *)iObject->extra;
+			im->type = color; // random color, including rainbow
+			im->quality = draketype; // random quality. those bunnies have a lot of different eggs.
+		break;
 	}
 
 	DropItemToProperPlace(inv, monster, iObject, 0.4f);
@@ -832,13 +1066,27 @@ void SharedSpace::DropItemToProperPlace(Inventory *inv,
 						iObject->WhoAmI(),
 						monster->Name());
 			CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
+			if (iObject->type== INVOBJ_SIMPLE) // if simple
+				SendToEveryoneNearBut(av->socketIndex, monster->cellX, monster->cellY,
+					sizeof(infoText), (void *)&infoText, 2, INFO_FLAGS_LOOT_TAKEN|INFO_FLAGS_SHOWSIMPLE); 
+			else
 			SendToEveryoneNearBut(av->socketIndex, monster->cellX, monster->cellY,
-							sizeof(infoText),(void *)&infoText,2, INFO_FLAGS_LOOT_TAKEN);
-
-			if (av->infoFlags & INFO_FLAGS_LOOT_TAKEN)
+				sizeof(infoText), (void *)&infoText, 2, INFO_FLAGS_LOOT_TAKEN);
+			if (iObject->type == INVOBJ_SIMPLE) // if simple
 			{
-				tempReceiptList.push_back(av->socketIndex);
-			  	lserver->SendMsg(sizeof(infoText),(void *)&infoText, 0, &tempReceiptList);
+				if ((av->infoFlags & (INFO_FLAGS_LOOT_TAKEN | INFO_FLAGS_SHOWSIMPLE)) == (INFO_FLAGS_LOOT_TAKEN | INFO_FLAGS_SHOWSIMPLE))
+				{
+					tempReceiptList.push_back(av->socketIndex);
+					lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+				}
+			}
+			else
+			{
+				if (av->infoFlags & INFO_FLAGS_LOOT_TAKEN)
+				{
+					tempReceiptList.push_back(av->socketIndex);
+					lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
+				}
 			}
 
 			av->charInfoArray[av->curCharacterIndex].inventory->AddItemSorted(iObject);

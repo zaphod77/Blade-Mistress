@@ -21,6 +21,8 @@ enum
 	STAFF_AREA_POISON,
 	STAFF_AREA_STUN,
 	STAFF_AREA_BIND,
+	STAFF_AREA_TAUNT,
+	STAFF_TAMING,
 	STAFF_MAX
 };
 
@@ -29,7 +31,7 @@ struct StaffEffects
 	char effect[STAFF_MAX];
 };
 
-const int STAFF_QUALITY_MAX = 5;
+const int STAFF_QUALITY_MAX = 6;
 const int STAFF_SELLABLE_QUALITY_MAX = 1;
 
 extern void UpdateStaff(InventoryObject *staffObject, float workLevel);
@@ -41,5 +43,6 @@ extern int StaffAffectsArea(InvStaff *extra);
 extern unsigned char staffColor[STAFF_MAX][3];
 
 extern char staffTypeName[STAFF_MAX][17];
+extern char staffQualityName[STAFF_QUALITY_MAX][12];
 
 #endif

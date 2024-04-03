@@ -22,7 +22,7 @@
 #include "clientOnly.h"
 
 #include "BBOClient.h"
-#include "BBOServer.h"
+// #include "BBOServer.h"
 
 char *inst1Text = "Welcome to Blade Mistress!\n\n\
 Turn using the left and right arrow keys, or by holding the right mouse button\n\
@@ -78,7 +78,7 @@ enum
 };
 
 //PlasmaTexture *bboClient->groundMap;
-extern BBOServer *server;
+// extern BBOServer *server;
 extern Client *	lclient;
 
 extern int playerInDungeon;

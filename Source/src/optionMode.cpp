@@ -28,7 +28,7 @@
 
 #include "BBOClient.h"
 
-#include "BBOServer.h"
+// #include "BBOServer.h"
 
 enum 
 {
@@ -58,7 +58,7 @@ enum
 };
 
 //PlasmaTexture *bboClient->groundMap;
-extern BBOServer *server;
+// extern BBOServer *server;
 extern Client *	lclient;
 
 extern long gGamePlayerLevel, gGamePlayerHP, gGamePlayerMaxHP;
@@ -176,10 +176,19 @@ int FAR PASCAL optionModeProcess(UIRect *curUIRect, int type, long x, short y)
 
 		case OM_BUTTON_INFO_LOOTS :
 			button1Sound->PlayNo3D();
-			if (playerInfoFlags & INFO_FLAGS_LOOT_TAKEN)
-				playerInfoFlags &= ~(INFO_FLAGS_LOOT_TAKEN);
-			else
-				playerInfoFlags |= INFO_FLAGS_LOOT_TAKEN;
+			if ((playerInfoFlags & INFO_FLAGS_LOOT_TAKEN) && (playerInfoFlags & INFO_FLAGS_SHOWSIMPLE))
+			{
+				playerInfoFlags &= ~(INFO_FLAGS_SHOWSIMPLE); // remove show simple flag
+			}
+			else if (playerInfoFlags & INFO_FLAGS_LOOT_TAKEN)
+			{
+				playerInfoFlags &= ~(INFO_FLAGS_LOOT_TAKEN); // remove show any flag.
+			}
+			else 
+			{ 
+				playerInfoFlags |= INFO_FLAGS_LOOT_TAKEN;  // add back both flags
+				playerInfoFlags |= INFO_FLAGS_SHOWSIMPLE;
+			}
 
 			infoFlagsMess.flags = playerInfoFlags;
 			lclient->SendMsg(sizeof(infoFlagsMess),(void *)&infoFlagsMess);
@@ -784,10 +793,12 @@ void OptionMode::RefreshSettingsButtons(void)
 	tButt = (UIRectTextButton *) big->childRectList.Find(OM_BUTTON_INFO_LOOTS);
 	if (tButt)
 	{
-		if (playerInfoFlags & INFO_FLAGS_LOOT_TAKEN)
-			sprintf(tempText,"Items taken displayed");
-		else
-			sprintf(tempText,"Item taken NOT shown");
+		if ((playerInfoFlags & INFO_FLAGS_SHOWSIMPLE))
+			sprintf(tempText, "Items taken displayed");
+
+		else if((playerInfoFlags & INFO_FLAGS_LOOT_TAKEN))
+			sprintf(tempText, "Simple loot hidden");
+		else sprintf(tempText,"Item taken NOT shown");
 		tButt->SetText(tempText);
 	}
 	tButt = (UIRectTextButton *) big->childRectList.Find(OM_BUTTON_INFO_FOG);

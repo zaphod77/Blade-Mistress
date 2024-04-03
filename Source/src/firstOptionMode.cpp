@@ -19,7 +19,7 @@
 
 #include "./network/NetWorldMessages.h"
 
-#include "BBOServer.h"
+// #include "BBOServer.h"
 #include "./network/client.h"
 #include "clientOnly.h"
 
@@ -48,7 +48,7 @@ enum
     FOM_BUTTON_SERVER_0
 };
 
-extern BBOServer *server;
+// extern BBOServer *server;
 extern Client *	lclient;
 extern char ipAddress[128];
 extern int createServerFlag;
@@ -146,7 +146,11 @@ int FAR PASCAL FirstOptionModeProcess(UIRect *curUIRect, int type, long x, short
 #ifdef _TEST_SERVER
             if (!lclient->connect(ipAddress, 9178))
 #else
-            if (!lclient->connect(ipAddress, 3678))
+#ifdef CHEATS			
+			if (!lclient->connect(ipAddress, 3679))
+#else
+			if (!lclient->connect(ipAddress, 3678))
+#endif
 #endif
             {
                 newGameMode = new SimpleMessageMode("The server is not responding.  It may be temporarily stopped,\n or your local network could have a firewall that blocks access.\nPlease check if your network blocks access, and try again later.",0,"SIMPLE_MESSAGE_MODE");
@@ -207,8 +211,8 @@ FirstOptionMode::FirstOptionMode(int doid, char *doname) : GameMode(doid,doname)
     WSAData wsaData;
     WSAStartup(MAKEWORD(2, 2), &wsaData);
 
-    if (createServerFlag)
-        server = new BBOServer(FALSE);
+   // if (createServerFlag)
+   //     server = new BBOServer(FALSE);
 
     lclient = new Client();
 
@@ -312,7 +316,7 @@ hInternetSession = InternetOpen(
 hURL = InternetOpenUrl(
          hInternetSession,               // session handle
          pURLPage,   // URL to access
-         NULL, 0, 0, 0);               // defaults
+         NULL, 0, INTERNET_FLAG_RELOAD, 0);               // defaults
 
 // read page into memory buffer
 bResult = InternetReadFile(hURL, (LPSTR)cBuffer,
@@ -362,8 +366,8 @@ FirstOptionMode::~FirstOptionMode()
     if (createServerFlag)
     {
         _sleep(2000);
-        delete server;
-        server = NULL;
+    //    delete server;
+    //    server = NULL;
     }
 
     
@@ -642,7 +646,7 @@ int FirstOptionMode::Tick(void)
             fullWindow->AddChild(edLine);
             UIRectShift(0,47);
 
-            edLine	  = new UIRectEditLine(FOM_BUTTON_PASS,-2,-2,-2,-2,11); 
+            edLine	  = new UIRectEditLine(FOM_BUTTON_PASS,-2,-2,-2,-2,12); 
             edLine->process = FirstOptionModeProcess;
             edLine->fillStyle = UIRECT_WINDOW_STYLE_NOTHING;
             edLine->SetText(passBuffer);
@@ -653,7 +657,7 @@ int FirstOptionMode::Tick(void)
             char tempText[1024];
             UIRectTextBox *tBox = new UIRectTextBox(FOM_BUTTON_TEXT,
                          80,puma->ScreenH()/2-70,puma->ScreenW()-80,puma->ScreenH()/2+60);
-            sprintf(tempText,"Welcome to the Blade Mistress online game!\nThis is the Blade Mistress Client V%2.3f\n\nPlease type in your account name and password.\nIf this is your first time, then type in whatever\naccount name and password you would like to have.\nWhen you are done, press ENTER.",VERSION_NUMBER);
+            sprintf_s(tempText,"Welcome to the Blade Mistress online game!\nThis is the Blade Mistress Client V%2.3f\n\nPlease type in your account name and password.\nIf this is your first time, then type in whatever\naccount name and password you would like to have.\nWhen you are done, press ENTER.",VERSION_NUMBER);
             tBox->SetText(tempText);
 //			tBox->SetText("TEST");
             tBox->process = FirstOptionModeProcess;
@@ -1087,12 +1091,17 @@ void FirstOptionMode::HandleMessages(void)
                 newGameMode = new SimpleMessageMode("You must be a patron to join the test server.",0,"SIMPLE_MESSAGE_MODE");
                 retState = GMR_NEW_MODE;
             }
-            if (12 == messNoPtr->subType)
-            {
-                newGameMode = new SimpleMessageMode("Your computer is banned.",0,"SIMPLE_MESSAGE_MODE");
-                retState = GMR_NEW_MODE;
-            }
-           break;
+			if (12 == messNoPtr->subType)
+			{
+				newGameMode = new SimpleMessageMode("Your computer is banned.", 0, "SIMPLE_MESSAGE_MODE");
+				retState = GMR_NEW_MODE;
+			}
+			if (13 == messNoPtr->subType)
+			{
+				newGameMode = new SimpleMessageMode("You have too many characters logged in.", 0, "SIMPLE_MESSAGE_MODE");
+				retState = GMR_NEW_MODE;
+			}
+			break;
 
         case NWMESS_GENERAL_YES:
             messYesPtr = (MessGeneralYes *) messData;
@@ -1112,14 +1121,14 @@ void FirstOptionMode::HandleMessages(void)
                 MessPlayerReturning messPlayerReturning;
 
                 CorrectString(nameBuffer);
-
+//                CorrectString(passBuffer);
                 sprintf_s(messPlayerReturning.name, NUM_OF_CHARS_FOR_USERNAME, "%s", nameBuffer);
 
                 unsigned char salt[256];
                 sprintf_s((char*)&salt[0], 256, "%s-%s", "BladeMistress", nameBuffer);
 
                 // Hash the password
-				unsigned char hashPass[HASH_BYTE_SIZE] = { 0 };
+				unsigned char hashPass[HASH_BYTE_SIZE+1] = { 0 };
                 if (!PasswordHash::CreateStandaloneHash((const unsigned char*) passBuffer, salt, 6969, hashPass))
                 {
                     newGameMode = new SimpleMessageMode("There was an error sending your credentials to the server.\nPlease contact your server admin.", 0, "SIMPLE_MESSAGE_MODE");
@@ -1129,7 +1138,7 @@ void FirstOptionMode::HandleMessages(void)
 
 				// Send hashed password
 				memcpy(messPlayerReturning.pass, hashPass, HASH_BYTE_SIZE);
-				messPlayerReturning.pass[HASH_BYTE_SIZE] = 0;
+				messPlayerReturning.pass[HASH_BYTE_SIZE+1] = 0;
 
                 messPlayerReturning.uniqueId = GetUniqueComputerId();
                 messPlayerReturning.version = VERSION_NUMBER;	
@@ -1177,7 +1186,7 @@ void DrawPleaseWaitScreen(void)
 
     CD3DFont *pf = puma->GetDXFont(0);
     char tempText[128];
-    sprintf(tempText,"Traveling....................");
+    sprintf_s(tempText,"Traveling....................");
     tempText[10 + dpwsCounter] = 0;
     RECT rect = {puma->ScreenW()/2 - 40, puma->ScreenH()/2 - 6,
                  puma->ScreenW()/2 + 80, puma->ScreenH()/2 + 12};

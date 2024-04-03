@@ -20,7 +20,7 @@
 #include "simpleMessageMode.h"
 #include "groundTestMode.h"
 
-#include "BBOServer.h"
+// #include "BBOServer.h"
 #include "./network/client.h"
 #include "./helper/PasswordHash.h"
 #include ".\helper\crypto.h"
@@ -37,7 +37,7 @@ enum
     LM_BUTTON_TEXT
 };
 
-extern BBOServer *server;
+// extern BBOServer *server;
 extern Client *	lclient;
 
 extern int playerAvatarID;
@@ -77,7 +77,7 @@ int FAR PASCAL LoginModeProcess(UIRect *curUIRect, int type, long x, short y)
                 sprintf_s((char*)&salt[0], 256, "%s-%s", "BladeMistress", edName->text);
 
                 // Hash the password
-				unsigned char hashPass[HASH_BYTE_SIZE] = { 0 };
+				unsigned char hashPass[HASH_BYTE_SIZE+1] = { 0 };
                 if (!PasswordHash::CreateStandaloneHash((const unsigned char*)edPass->text, salt, 6969, hashPass))
                 {
                     newGameMode = new SimpleMessageMode("There was an error sending your credentials to the server.\nPlease contact your server admin.", 0, "SIMPLE_MESSAGE_MODE");
@@ -87,7 +87,7 @@ int FAR PASCAL LoginModeProcess(UIRect *curUIRect, int type, long x, short y)
 
 				// Send hashed password
 				memcpy(messPlayerNew.pass, hashPass, HASH_BYTE_SIZE);
-				messPlayerNew.pass[HASH_BYTE_SIZE] = 0;
+				messPlayerNew.pass[HASH_BYTE_SIZE+1] = 0;
 
                 messPlayerNew.uniqueId = GetUniqueComputerId();
 
@@ -114,7 +114,7 @@ int FAR PASCAL LoginModeProcess(UIRect *curUIRect, int type, long x, short y)
                 sprintf_s((char*)&salt[0], 256, "%s-%s", "BladeMistress", edName->text);
 
                 // Hash the password
-				unsigned char hashPass[HASH_BYTE_SIZE] = { 0 };
+				unsigned char hashPass[HASH_BYTE_SIZE+1] = { 0 };
                 if (!PasswordHash::CreateStandaloneHash((const unsigned char*)edPass->text, salt, 6969, hashPass))
                 {
                     newGameMode = new SimpleMessageMode("There was an error sending your credentials to the server.\nPlease contact your server admin.", 0, "SIMPLE_MESSAGE_MODE");
@@ -124,7 +124,7 @@ int FAR PASCAL LoginModeProcess(UIRect *curUIRect, int type, long x, short y)
 
 				// Send hashed password
 				memcpy(messPlayerNew.pass, hashPass, HASH_BYTE_SIZE);
-				messPlayerNew.pass[HASH_BYTE_SIZE] = 0;
+				messPlayerNew.pass[HASH_BYTE_SIZE+1] = 0;
 
                 messPlayerReturning.uniqueId = GetUniqueComputerId();
 

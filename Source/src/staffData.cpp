@@ -20,7 +20,9 @@ char staffTypeName[STAFF_MAX][17] =
 	{"Din Slow"},
 	{"Din Poison"},
 	{"Din Stun"},
-	{"Din Tangle"}
+	{"Din Tangle"},
+	{"Spirit Summoning"},
+	{"Taming"}
 };
 
 // BEAR, WOLF, EAGLE, SNAKE, FROG, SUN, MOON, TURTLE, evil
@@ -37,7 +39,9 @@ int staffImbueValue[STAFF_MAX][MAGIC_MAX] =
 	{0, 0, 2, 2,     4, 3, 1, 1, 0},
 	{1, 0, 3, 2,     0, 4, 2, 3, 0},
 	{0, 4, 3, 0,     2, 2, 1, 1, 0},
-	{4, 1, 2, 1,     0, 3, 1, 1, 0}
+	{4, 1, 2, 1,     0, 3, 1, 1, 0},
+	{4, 4, 4, 4,     4, 4, 4, 4, 4},
+	{1, 1, 1, 1,     1, 4, 4, 1, 0}
 };
 
 unsigned char staffColor[STAFF_MAX][3] =
@@ -54,7 +58,8 @@ unsigned char staffColor[STAFF_MAX][3] =
 	{128,0,255},
 	{255,255,128},
 	{128,255,255},
-	{255,128,255}
+	{255,128,255},
+    {0,0,255}
 
 };
 
@@ -65,7 +70,8 @@ char staffQualityName[STAFF_QUALITY_MAX][12] =
 	{"Birch"},
 	{"Spruce"},
 	{"Oak"},
-	{"Onyx"}
+	{"Onyx"},
+	{"Elm"}
 };
 
 //******************************************************************************
@@ -188,6 +194,8 @@ float ImbueStaffChallenge(InvStaff *extra)
 //******************************************************************************
 int StaffAffectsArea(InvStaff *extra)
 {
+	if (extra->type == STAFF_AREA_TAUNT)
+		return 2; // this one has a range of 2
 	if (extra->type >= STAFF_AREA_DAMAGE)
 		return 1; // up to 1 square away
 	return 0;

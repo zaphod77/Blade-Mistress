@@ -25,10 +25,12 @@ enum
 	ACTION_TYPE_GIVE,
 	ACTION_TYPE_GIVE5,
 	ACTION_TYPE_GIVE20,
+	ACTION_TYPE_GIVECUSTOM,
 	ACTION_TYPE_GIVEALL,
 	ACTION_TYPE_BUY,
 	ACTION_TYPE_BUY5,
 	ACTION_TYPE_BUY20,
+	ACTION_TYPE_BUYCUSTOM,
 	ACTION_TYPE_BUYALL,
 	ACTION_TYPE_SELL,
 	ACTION_TYPE_USE,
@@ -38,12 +40,16 @@ enum
 	ACTION_TYPE_UNWIELD,
 	ACTION_TYPE_ATTACK,
 	ACTION_TYPE_INCLUDE,
+	ACTION_TYPE_INCLUDE2,
 	ACTION_TYPE_INCLUDE5,
 	ACTION_TYPE_INCLUDE20,
+	ACTION_TYPE_INCLUDECUSTOM,
 	ACTION_TYPE_INCLUDEALL,
 	ACTION_TYPE_EXCLUDE,
+	ACTION_TYPE_EXCLUDE2,
 	ACTION_TYPE_EXCLUDE5,
 	ACTION_TYPE_EXCLUDE20,
+	ACTION_TYPE_EXCLUDECUSTOM,
 	ACTION_TYPE_EXCLUDEALL,
 	ACTION_TYPE_COMBINE,
 	ACTION_TYPE_TELEPORT,
@@ -63,9 +69,13 @@ enum
 	ACTION_TYPE_RETRACT,
 	ACTION_TYPE_RETRACT5,
 	ACTION_TYPE_RETRACT20,
+	ACTION_TYPE_RETRACTCUSTOM,
 	ACTION_TYPE_RETRACTALL,
 	ACTION_TYPE_SET_BOMB,
 	ACTION_TYPE_BANK,
+	ACTION_TYPE_BM_CONTROL,
+	ACTION_TYPE_BM_RECALL,
+	ACTION_TYPE_BM_TAME,
 	ACTION_TYPE_MAX
 };
 
@@ -122,7 +132,7 @@ public:
 		                buttonArt, uiArt, uiPlayerListArt[4], uiOtherListArt,
 							 uiPopUpArt, uiPopUpLongArt, uiPopUpSpaceArt, 
 							 uiPopUpTop, uiPopUpBottom, uiCompassArt,
-							 uiPlayerFrameArt, uiTradeListArt, radarArt[9];
+							 uiPlayerFrameArt, uiTradeListArt, radarArt[9], radarArtb[9], radarArtS1[3], radarArtS2[3], radarArtS3[3], radarArtS4[3], radarArtS5[3], radarArtS6[3], radarArtS7[3];
 
 	UIRectWindow *fullWindow, *actionWindow, *listWindow, *charInvWindow;
 	UIRectWindow *otherWindow, *secureYouWindow, *secureHerWindow, *bankWindow;
@@ -137,7 +147,7 @@ public:
 	int playerInvIndex, otherInvIndex, selectedIndex, bankInvIndex;
 	int secureYouInvIndex, secureHerInvIndex;
 	int playerListMode; // GTM_BUTTON_LIST_*
-	int giveMoneyMode, namePetMode;
+	int giveMoneyMode, namePetMode,transfercustommode;
 	int currentTip, chatChannelValues;
 	long money, partnerPtr, monsterHealthTimer;
 	DWORD moveRequestTimer;

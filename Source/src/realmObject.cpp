@@ -99,42 +99,75 @@ void RealmObject::Init(char *cMapFileName, char *skyFileName)
 	if (REALM_ID_DEAD == realmType)
 	{
 		ruinMesh[0] = new PumaMesh();
-		ruinMesh[0]->LoadCompressed(puma->m_pd3dDevice,"dat\\ruins1.MEC");
+	//	ruinMesh[0]->LoadFromASC(puma->m_pd3dDevice, "dat\\ruins1.ase");
+	//	ruinMesh[0]->SaveCompressed(puma->m_pd3dDevice, "dat\\ruins1.MEC");
+		ruinMesh[0]->LoadCompressed(puma->m_pd3dDevice, "dat\\ruins1.MEC");
 		ruinMesh[0]->LoadTexture(puma->m_pd3dDevice,	"dat\\ruins.png");
 
 		ruinMesh[1] = new PumaMesh();
+//		ruinMesh[1]->LoadFromASC(puma->m_pd3dDevice, "dat\\grave.ase");
+//		ruinMesh[1]->SaveCompressed(puma->m_pd3dDevice, "dat\\grave.MEC");
 		ruinMesh[1]->LoadCompressed(puma->m_pd3dDevice,"dat\\grave.MEC");
 		ruinMesh[1]->LoadTexture(puma->m_pd3dDevice,	"dat\\grave.png");
 
 		ruinMesh[2] = new PumaMesh();
+//		ruinMesh[2]->LoadFromASC(puma->m_pd3dDevice, "dat\\headstone.ase");
+//		ruinMesh[2]->SaveCompressed(puma->m_pd3dDevice, "dat\\headstone.MEC");
 		ruinMesh[2]->LoadCompressed(puma->m_pd3dDevice,"dat\\headstone.MEC");
 		ruinMesh[2]->LoadTexture(puma->m_pd3dDevice,	"dat\\headstone.png");
 	}
 	else if (REALM_ID_DRAGONS == realmType)
 	{
-//		meshes[8]->LoadFromASC(puma->m_pd3dDevice,"dat\\s-tree1.ase");
-//		meshes[8]->LoadTexture(puma->m_pd3dDevice,"dat\\s-tree1.png",1);
+		//		meshes[8]->LoadFromASC(puma->m_pd3dDevice,"dat\\s-tree1.ase");
+		//		meshes[8]->LoadTexture(puma->m_pd3dDevice,"dat\\s-tree1.png",1);
 
 		ruinMesh[0] = new PumaMesh();
 		ruinMesh[0]->LoadFromASC(puma->m_pd3dDevice, "dat\\gargoyle.ase");
 		ruinMesh[0]->Scale(puma->m_pd3dDevice, 0.050f, 0.050f, 0.050f);
-	//	ruinMesh[0]->SaveCompressed(puma->m_pd3dDevice,"dat\\ruins2.MEC");
-	//	ruinMesh[0]->LoadCompressed(puma->m_pd3dDevice,"dat\\ruins2.MEC");
-		ruinMesh[0]->LoadTexture(puma->m_pd3dDevice,	"dat\\gargoyle.png");
+		//	ruinMesh[0]->SaveCompressed(puma->m_pd3dDevice,"dat\\ruins2.MEC");
+		//	ruinMesh[0]->LoadCompressed(puma->m_pd3dDevice,"dat\\ruins2.MEC");
+		ruinMesh[0]->LoadTexture(puma->m_pd3dDevice, "dat\\gargoyle.png");
 
 		ruinMesh[1] = new PumaMesh();
 		ruinMesh[1]->LoadFromASC(puma->m_pd3dDevice, "dat\\s-tree1.ase");
 		ruinMesh[1]->Scale(puma->m_pd3dDevice, 0.006f, 0.006f, 0.006f);
-	//	ruinMesh[1]->SaveCompressed(puma->m_pd3dDevice,"dat\\ruins2.MEC");
-	//	ruinMesh[1]->LoadCompressed(puma->m_pd3dDevice,"dat\\ruins2.MEC");
-		ruinMesh[1]->LoadTexture(puma->m_pd3dDevice,	"dat\\s-tree1.png");
+		//	ruinMesh[1]->SaveCompressed(puma->m_pd3dDevice,"dat\\ruins2.MEC");
+		//	ruinMesh[1]->LoadCompressed(puma->m_pd3dDevice,"dat\\ruins2.MEC");
+		ruinMesh[1]->LoadTexture(puma->m_pd3dDevice, "dat\\s-tree1.png");
 
 		ruinMesh[2] = new PumaMesh();
 		ruinMesh[2]->LoadFromASC(puma->m_pd3dDevice, "dat\\s-tree1.ase");
 		ruinMesh[2]->Scale(puma->m_pd3dDevice, 0.013f, 0.013f, 0.013f);
-	//	ruinMesh[2]->SaveCompressed(puma->m_pd3dDevice,"dat\\ruins3.MEC");
-	//	ruinMesh[2]->LoadCompressed(puma->m_pd3dDevice,"dat\\ruins3.MEC");
-		ruinMesh[2]->LoadTexture(puma->m_pd3dDevice,	"dat\\s-tree1.png");
+		//	ruinMesh[2]->SaveCompressed(puma->m_pd3dDevice,"dat\\ruins3.MEC");
+		//	ruinMesh[2]->LoadCompressed(puma->m_pd3dDevice,"dat\\ruins3.MEC");
+		ruinMesh[2]->LoadTexture(puma->m_pd3dDevice, "dat\\s-tree1.png");
+	}
+
+	else if (REALM_ID_TEST == realmType)
+	{
+		//		meshes[8]->LoadFromASC(puma->m_pd3dDevice,"dat\\s-tree1.ase");
+		//		meshes[8]->LoadTexture(puma->m_pd3dDevice,"dat\\s-tree1.png",1);
+
+		ruinMesh[0] = new PumaMesh();
+		ruinMesh[0]->LoadFromASC(puma->m_pd3dDevice, "dat\\gargoyle.ase");
+		ruinMesh[0]->Scale(puma->m_pd3dDevice, 0.050f, 0.050f, 0.050f);
+		//	ruinMesh[0]->SaveCompressed(puma->m_pd3dDevice,"dat\\ruins2.MEC");
+		//	ruinMesh[0]->LoadCompressed(puma->m_pd3dDevice,"dat\\ruins2.MEC");
+		ruinMesh[0]->LoadTexture(puma->m_pd3dDevice, "dat\\gargoyle.png");
+
+		ruinMesh[1] = new PumaMesh();
+		ruinMesh[1]->LoadFromASC(puma->m_pd3dDevice, "dat\\s-tree1.ase");
+		ruinMesh[1]->Scale(puma->m_pd3dDevice, 0.006f, 0.006f, 0.006f);
+		//	ruinMesh[1]->SaveCompressed(puma->m_pd3dDevice,"dat\\ruins2.MEC");
+		//	ruinMesh[1]->LoadCompressed(puma->m_pd3dDevice,"dat\\ruins2.MEC");
+		ruinMesh[1]->LoadTexture(puma->m_pd3dDevice, "dat\\s-tree1.png");
+
+		ruinMesh[2] = new PumaMesh();
+		ruinMesh[2]->LoadFromASC(puma->m_pd3dDevice, "dat\\s-tree1.ase");
+		ruinMesh[2]->Scale(puma->m_pd3dDevice, 0.013f, 0.013f, 0.013f);
+		//	ruinMesh[2]->SaveCompressed(puma->m_pd3dDevice,"dat\\ruins3.MEC");
+		//	ruinMesh[2]->LoadCompressed(puma->m_pd3dDevice,"dat\\ruins3.MEC");
+		ruinMesh[2]->LoadTexture(puma->m_pd3dDevice, "dat\\s-tree1.png");
 	}
 
 }
