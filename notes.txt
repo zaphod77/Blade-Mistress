@@ -1,0 +1,40 @@
+what is ACCOUNT_TYPE_SUPERBANNED? 
+
+superbanned means that if the account is logged into, the mac addresc of the 
+computer is autobanned.
+
+This is to catch people who change their mac address or packet edit to bypass 
+a ban.  They'd do it and try to log into the old acount only to get told their 
+computer is banned, and now they can't mak another account. evil, huh?  IP 
+bans don't work because of the adding of ipv6 to the network stack. It's 
+something to fix.
+
+Stuff in progress.
+
+1) Player Shops.  they would reside in the Mysterious cave.  Currently a load 
+routine for them is working, but a save is not.  A new skin color would have 
+been added for these new merchants.  Currently the mysterious cave saves its 
+layout to serverdat/cave.dat, so it's persistent now.  New packets and work on 
+the client will probably be needed to finish this. Ther was also going to be a 
+master npc at the start to use to search for stuff and teleport you to the 
+shop you want.
+2) pvp.  many functions have been added to allow attacking of players, but 
+it's all inactive now.  Balance is intended to be very different for PVP.
+
+There are some other disabled features you may find, like the other scythes, 
+as well as a disarm skill, which is used to dismantle bombs, and had future 
+plans for more uses.
+
+To build a test server, you need to edit version.h. the edit sohuld be self 
+explanatory. This is only needed if you are going to run them on the same pc.  
+the testserver client uses the alt port too.
+
+You also need to edit the icon in another file (ServerWrapper.rc) to let you 
+tell the difference between the two.
+
+There's also a now disabled anti macro because hotkeys were turned back on 
+anyway, making it pointless.
+
+The Realm of Pain was supposed to be the PVP realm. it was never made because 
+bear and Pun couldn't figure out a way to balance pvp at all.  and to be fair, 
+it's HARD.
