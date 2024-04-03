@@ -44,9 +44,9 @@ public:
 	PumaMesh *MakeCopy(LPDIRECT3DDEVICE8 pd3dDevice);
 
 	void Save(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName = NULL, int resetNormals = TRUE);
-	void Load(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName = NULL);
+	int Load(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName = NULL);
 	void SaveCompressed(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName, int resetNormals = TRUE);
-	void LoadCompressed(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName);
+	int LoadCompressed(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName);
 
 	void Draw(LPDIRECT3DDEVICE8 pd3dDevice, LPDIRECT3DTEXTURE8 otherArt = NULL);
 	

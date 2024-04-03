@@ -22,7 +22,7 @@
 
 #include "..\network\NetWorldMessages.h"
 
-#include "..\BBOServer.h"
+// #include "..\BBOServer.h"
 #include "..\network\client.h"
 
 //#include "loginmode.h"
@@ -67,7 +67,7 @@ int gScreenH = 480;
 //int gScreenH = 768;
 
 
-BBOServer *server = NULL;
+// BBOServer *server = NULL;
 Client *	lclient;
 
 char ipAddress[128];
@@ -84,7 +84,7 @@ int GlobalUDPNetCallback(	UDPSocket *socket, struct _WSANETWORKEVENTS &events, c
                             int size, void * context)
 {
         // varaibles.
-    Server *	server		= NULL;
+//    Server *	server		= NULL;
     Client *	client		= NULL;
     int			bytesParsed = 0;
 /*
@@ -100,10 +100,10 @@ int GlobalUDPNetCallback(	UDPSocket *socket, struct _WSANETWORKEVENTS &events, c
 */
 
         // try the server first.
-    if(server != NULL)
-    {
-        bytesParsed = server->UDPNetCallback(socket, events, buffer, size, server);
-    }
+//    if(server != NULL)
+//    {
+//        bytesParsed = server->UDPNetCallback(socket, events, buffer, size, server);
+//    }
 
     if((bytesParsed == 0) && (client != NULL))
     {
@@ -235,6 +235,15 @@ void ParseCommandLine(char * commandLine)
                 gScreenW = 1600;
                 gScreenH = 1200;
 
+				const HWND hDesktop = GetDesktopWindow(); // this is a big resolution. make sure it fits.
+				RECT desktop;
+				GetWindowRect(hDesktop, &desktop);
+				int vertical= desktop.bottom;
+				if (vertical < gScreenH) // if your screen is only 1080p
+				{
+					gScreenW = 1280;  // then back off to a lower standard resolution that should fit.
+					gScreenH = 960;
+				}
                 while (	!isspace(commandLine[linePoint]) && commandLine[linePoint])
                 {
                     linePoint++;
@@ -280,7 +289,7 @@ void ParseCommandLine(char * commandLine)
             else if (!strnicmp( &(commandLine[linePoint]) , "S" , 1))
             {
                 // turn on server
-                createServerFlag = TRUE;
+//                createServerFlag = TRUE; // no wait don't do it! 
 
                 while (	!isspace(commandLine[linePoint]) && commandLine[linePoint])
                 {
@@ -465,9 +474,9 @@ INT WINAPI WinMain( HINSTANCE hInst, HINSTANCE, LPSTR lpCmdLine, int nCmdShow)
 //					aLog.Log("Main 1 **\n");
 
                lastTimeChecked = timeGetTime();
-                   if (server)
-                       server->Tick();
-
+//                   if (server)
+//                       server->Tick();
+//				   Sleep(10);  // make client stop hogging the cpu core!
 //					aLog.Log("Main 2 **\n");
 
                     int deviceStatus = MaintainDeviceIntegrity(puma->m_hWnd);
@@ -529,7 +538,7 @@ INT WINAPI WinMain( HINSTANCE hInst, HINSTANCE, LPSTR lpCmdLine, int nCmdShow)
                }
 //					aLog.Log("Main 6 **\n");
 
-            }    
+            } 
          }
         }
     

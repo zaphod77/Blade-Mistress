@@ -8,7 +8,7 @@
 #include "..\helper\GeneralUtils.h"
 #include "d3dutil.h"
 #include "pumaRawVerts.h"
-
+#include "..\Helper\crc.h" // so we can check CRCs.
 #include "..\helper\autolog.h"
 
 
@@ -632,7 +632,7 @@ void PumaMesh::Save(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName, int resetNorma
 
 
 //***************************************************************************************
-void PumaMesh::Load(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName)
+int PumaMesh::Load(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName)
 {
 	aLog.Log("PumaMesh::Load ");
 	aLog.Log(fileName);
@@ -656,13 +656,13 @@ void PumaMesh::Load(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName)
 	   ofn.Flags = OFN_NOCHANGEDIR;
 
   	   if (!GetOpenFileName(&ofn))
-			return;
+			return 0;
 
 		fileName = shipFileName;
 
       int len = strlen(shipFileName);
       if (len <= 0)
-         return;
+         return 0;
 		
       int tempLen = 0;
 		
@@ -681,9 +681,22 @@ void PumaMesh::Load(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName)
 
 	}
 
+	char tempString[256];  // lets get CRCs
+	char tempString2[256];  // and write them to file.
+	sprintf(tempString, "%s", fileName);
+	sprintf(tempString2, "%s.crc", fileName);
+	DWORD MeshCRC;
+	int checkError = GetCRC(tempString, MeshCRC);
+	assert(checkError == NO_ERROR);
+	int crcint = MeshCRC; // cast is safe since DWORD and int are same number of bytes
+						  //uncomment bottom 3 to enable writing out CRCs to file.
+//	fp = fopen(tempString2, "w"); 
+//	fprintf(fp, "%d", crcint);   
+//	fclose(fp);
+
 	fp = fopen(fileName,"rb");
 	if (!fp)
-		return;
+		return 0;
 
 	vdMan->DeleteObject(vertexList);
 	vdMan->DeleteObject(texture);
@@ -707,6 +720,7 @@ void PumaMesh::Load(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName)
 	fclose(fp);
 
 	aLog.Log(" DONE\n");
+	return crcint;
 
 }
 
@@ -1158,7 +1172,7 @@ void PumaMesh::SaveCompressed(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName, int 
 }
 
 //***************************************************************************************
-void PumaMesh::LoadCompressed(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName)
+int PumaMesh::LoadCompressed(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName)
 {
 	aLog.Log("PumaMesh::LoadCompressed ");
 	aLog.Log(fileName);
@@ -1184,32 +1198,38 @@ void PumaMesh::LoadCompressed(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName)
 	   ofn.Flags = OFN_NOCHANGEDIR;
 
   	   if (!GetOpenFileName(&ofn))
-			return;
+			return 0;
 
 		fileName = shipFileName;
 
       int len = strlen(shipFileName);
       if (len <= 0)
-         return;
+         return 0;
 		
       int tempLen = 0;
 		
       while(tempLen < len && shipFileName[tempLen] != '.')
          tempLen++;
 		
-      char tempString[256];
-		
       if (tempLen < len)
          shipFileName[tempLen] = 0;
-		
-      sprintf(tempString,"%s.mec",shipFileName);
-      sprintf(shipFileName,"%s",tempString);
-
 	}
+	char tempString[256];  // lets get CRCs
+	char tempString2[256];  // and write them to file.
+	sprintf(tempString, "%s", fileName);
+	sprintf(tempString2, "%s.crc", fileName);
+	DWORD MeshCRC;
+	int checkError = GetCRC(tempString, MeshCRC);
+	assert(checkError == NO_ERROR);
+	int crcint = MeshCRC; // cast is safe since DWORD and int are same number of bytes
+	//uncomment bottom 3 to enable writing out CRCs to file.
+	//	fp = fopen(tempString2, "w"); 
+//	fprintf(fp, "%d", crcint);   
+//	fclose(fp);
 
 	fp = fopen(fileName,"rb");
 	if (!fp)
-		return;
+		return 0;
 
 	// delete any old data
 	vdMan->DeleteObject(vertexList);
@@ -1299,7 +1319,7 @@ void PumaMesh::LoadCompressed(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName)
 	delete[] uvTable;
 
 	aLog.Log(" DONE\n");
-
+	return crcint;
 }
 
 

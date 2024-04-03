@@ -57,6 +57,8 @@ PumaAnim::~PumaAnim()
 //***************************************************************************************
 void PumaAnim::LoadFromASC(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName)
 {
+	aLog.Log("PumaAnim::LoadFromASC ");
+	aLog.Log(fileName);
 
 	FILE *fp;
 
@@ -164,6 +166,7 @@ void PumaAnim::LoadFromASC(LPDIRECT3DDEVICE8 pd3dDevice, char *fileName)
 			result = fscanf(fp,"%f",&(vertUVArray[tempIndex * 2 + 0]));
 			result = fscanf(fp,"%f",&(vertUVArray[tempIndex * 2 + 1]));
 		}
+
 		else if (!strncmp("*MESH_NUMFACES",fileBuffer,strlen("*MESH_NUMFACES")))
 		{
 			result = fscanf(fp,"%d",&numFaces);
