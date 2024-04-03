@@ -20,15 +20,17 @@
 #define IDC_RADIO_FULLSCREEN            1015
 #define IDC_RADIO_WINDOWED              1016
 #define IDC_RADIO_SERVER_DEFAULT        1017
+#define IDC_RADIO_SERVER_TEST           1018
 #define IDC_RADIO_640                   1019
 #define IDC_RADIO_800                   1020
 #define IDC_RADIO_1024                  1021
 #define IDC_EDIT_ACCOUNT                1022
 #define IDC_EDIT_PASSWORD               1023
 #define ID_CLOSE                        1024
-#define IDC_RADIO_1600                  1028
-#define IDC_BUTTON_UPDATE               1029
-#define IDC_LAUNCHER_TEXT               1034
+#define IDC_RADIO_1600                  1029
+#define IDC_BUTTON_UPDATE               1030
+#define IDC_LAUNCHER_TEXT               1032
+#define IDC_TAB2                        1036
 #define ID_MENU_EXIT                    32771
 #define ID_MENU_WEBSITE                 32772
 #define ID_MENU_WIKI                    32773
@@ -42,9 +44,9 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        136
+#define _APS_NEXT_RESOURCE_VALUE        137
 #define _APS_NEXT_COMMAND_VALUE         32779
-#define _APS_NEXT_CONTROL_VALUE         1035
+#define _APS_NEXT_CONTROL_VALUE         1037
 #define _APS_NEXT_SYMED_VALUE           102
 #endif
 #endif

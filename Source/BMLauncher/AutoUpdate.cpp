@@ -13,7 +13,40 @@
 #include "UpdateServer.h"
 
 
+void removeFirst(char * str, const char * toRemove)
+{
+	int i, j;
+	int len, removeLen;
+	int found = 0;
 
+	len = strlen(str);
+	removeLen = strlen(toRemove);
+
+	for (i = 0; i<len; i++)
+	{
+		found = 1;
+		for (j = 0; j<removeLen; j++)
+		{
+			if (str[i + j] != toRemove[j])
+			{
+				found = 0;
+				break;
+			}
+		}
+
+		/* If word has been found then remove it by shifting characters  */
+		if (found == 1)
+		{
+			for (j = i; j <= len - removeLen; j++)
+			{
+				str[j] = str[j + removeLen];
+			}
+
+			// Terminate from loop so only first occurrence is removed
+			break;
+		}
+	}
+}
 
 //***************************************************************************************
 FileRecord::FileRecord(int doid, char *doname)	 : DataObject(doid,doname)
@@ -41,24 +74,22 @@ void AutoUpdate::ProcessDirectory(DoublyLinkedList *recList, char* dir)
 	char tmp[2048];
 
 	sprintf_s(tempText, 1024, "%s\\*",dir);
-
-	FileNameList *list = GetNameList(tempText, "");
+	FileNameList *list = GetNameList(tempText,dir);
 
 	for (int i = 0; list && i < list->numOfFiles; ++i)
 	{
 		// looking for a period, which would indicate a file
 		int isFile = FALSE;
-		for (int j = 0; j < (int)strlen(list->nameList[i].name); ++j)
+		for (int j = 1; j < (int)strlen(list->nameList[i].name); ++j)
 		{
+
 			if ('.' == list->nameList[i].name[j])
 				isFile = TRUE;
 		}
 
 		if (isFile)
 		{
-			if (!strncmp(".",list->nameList[i].name,1))
-				;
-			else if (!strncmp("..",list->nameList[i].name,2))
+			if (list->nameList[i].name[strlen(list->nameList[i].name)-1]=='.')
 				;
 			else if (!_strnicmp("auto",list->nameList[i].name,strlen("auto")))
 				;
@@ -66,34 +97,34 @@ void AutoUpdate::ProcessDirectory(DoublyLinkedList *recList, char* dir)
 				;
 			else
 			{
-				if(!_strnicmp("BMLauncher",list->nameList[i].name,strlen("BMLInstaller")))
+				if (!_strnicmp("BMLauncher", list->nameList[i].name, strlen("BMLInstaller")))
 					newLauncher = true;
 
-				sprintf_s(tempText, 1024, "%s\\%s",dir,list->nameList[i].name);
-				HANDLE tempFile = CreateFile(tempText,GENERIC_READ,0, NULL, OPEN_EXISTING,
-							 FILE_ATTRIBUTE_NORMAL, NULL);
+				sprintf_s(tempText, 1024, "%s", list->nameList[i].name);
+				HANDLE tempFile = CreateFile(tempText, GENERIC_READ, 0, NULL, OPEN_EXISTING,
+					FILE_ATTRIBUTE_NORMAL, NULL);
 
 				if (!tempFile)
 				{
-					sprintf_s( tmp, 2048, "Unable to open %s to get its time.\r\n", tempText );
-					UpdateTextBox( tmp );
+					sprintf_s(tmp, 2048, "Unable to open %s to get its time.\r\n", tempText);
+					UpdateTextBox(tmp);
 					return;
 				}
- 
+
 				FILETIME created, accessed, written;
-				if (!GetFileTime(	tempFile, &created, &accessed, &written))
+				if (!GetFileTime(tempFile, &created, &accessed, &written))
 				{
-					sprintf_s( tmp, 2048, "Unable to get time info for %s.\r\n", tempText );
-					UpdateTextBox( tmp );
+					sprintf_s(tmp, 2048, "Unable to get time info for %s.\r\n", tempText);
+					UpdateTextBox(tmp);
 					return;
 				}
 
 				DWORD size;
-				size = GetFileSize(tempFile,NULL);
+				size = GetFileSize(tempFile, NULL);
 				if (0xFFFFFFFF == size)
 				{
-					sprintf_s( tmp, 2048, "Unable to get size info for %s.\r\n", tempText );
-					UpdateTextBox( tmp );
+					sprintf_s(tmp, 2048, "Unable to get size info for %s.\r\n", tempText);
+					UpdateTextBox(tmp);
 					return;
 				}
 
@@ -102,8 +133,42 @@ void AutoUpdate::ProcessDirectory(DoublyLinkedList *recList, char* dir)
 
 				DWORD dwCrc32;
 				DWORD crcResult = GetCRC(tempText, dwCrc32);
-//				assert(!crcResult);
+				//				assert(!crcResult);
+				sprintf_s(tmp, 2048, "\\%s", m_updateServer.pszServerName);
+				char * strwtf1=tempText; 
+				const char * toRemove=tmp;
 
+				int i, j;
+				int len, removeLen;
+				int found = 0;
+				len = strlen(strwtf1);
+				removeLen = strlen(toRemove);
+				for (i = 0; i<len; i++)
+				{
+					found = 1;
+					for (j = 0; j<removeLen; j++)
+					{
+						if (strwtf1[i + j] != toRemove[j])
+						{
+							found = 0;
+							break;
+						}
+					}
+
+				/* If word has been found then remove it by shifting characters  */
+					if (found == 1)
+					{
+						for (j = i; j <= len - removeLen; j++)
+						{
+							strwtf1[j] = strwtf1[j + removeLen];
+						}
+
+							// Terminate from loop so only first occurrence is removed
+							break;
+					}
+				}
+				sprintf_s(tempText, 1024, "%s", strwtf1);
+					
 				FileRecord *fr = new FileRecord(0,tempText);
 				fr->time = written;
 				fr->size = dwCrc32; //size;
@@ -112,7 +177,7 @@ void AutoUpdate::ProcessDirectory(DoublyLinkedList *recList, char* dir)
 		}
 		else
 		{
-			sprintf_s(tempText, 1024, "%s\\%s",dir,list->nameList[i].name);
+			sprintf_s(tempText, 1024, "%s",list->nameList[i].name);
 			ProcessDirectory(recList,tempText);
 		}
 
@@ -193,7 +258,7 @@ int AutoUpdate::DownloadFile(char *fileName)
 		hURL = InternetOpenUrl(
 					hInternetSession,               // session handle
 					tempText,   // URL to access
-					NULL, 0, 0, 0);               // defaults
+					NULL, 0, INTERNET_FLAG_RELOAD, 0);               // defaults
 
 		int connectTries = 0;
 		while (!hURL && connectTries < 20)
@@ -306,7 +371,7 @@ void AutoUpdate::Update()
 	hURL = InternetOpenUrl(
 				hInternetSession,               // session handle
 				tempText,   // URL to access
-				NULL, 0, 0, 0);               // defaults
+				NULL, 0, INTERNET_FLAG_RELOAD, 0);               // defaults
 
 	DWORD fileSize;
 	InternetQueryDataAvailable( hURL, &fileSize,0,0);

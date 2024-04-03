@@ -18,8 +18,9 @@ void LauncherConfig::LoadConfig()
 	in.open( "launcher_config.dat" );
 
 	in >> lastServer >> lastMode >> lastResolution;
-	in.getline( userName, 80 );
-	in.getline( userName, 80 );
+	in.getline(userName, 80);
+	in.getline(userName, 80);
+	in.getline(saveIP, 80);
 
 	in.close();
 }
@@ -32,7 +33,8 @@ void LauncherConfig::SaveConfig()
 	out << lastServer << endl
 		<< lastMode << endl
 		<< lastResolution << endl
-		<< userName;
+		<< userName << endl
+		<< saveIP;
 
 	out.close();
 }
@@ -43,10 +45,12 @@ int	LauncherConfig::getLastServer() { return lastServer; }
 int LauncherConfig::getLastResolution() { return lastResolution; }
 int LauncherConfig::getLastMode() { return lastMode; }
 char* LauncherConfig::getUserName() { return userName; }
+char* LauncherConfig::getIP() { return saveIP; }
 
 
 // Set functions to store config data
 void LauncherConfig::setLastServer( int last ) { lastServer = last; }
 void LauncherConfig::setLastResolution( int res ) { lastResolution = res; }
 void LauncherConfig::setLastMode( int mode ) { lastMode = mode; }
-void LauncherConfig::setUserName( char* str ) { strcpy(userName, str); }
+void LauncherConfig::setUserName(char* str) { strcpy(userName, str); }
+void LauncherConfig::setIP(char* str) { strcpy(saveIP, str); }

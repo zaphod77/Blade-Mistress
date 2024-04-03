@@ -21,7 +21,7 @@ static char THIS_FILE[] = __FILE__;
 enum ServerType
 {
 	kServerType_Default,
-
+	kServerType_Test,
 	kServerType_MAX
 };
 
@@ -45,8 +45,10 @@ CBMLauncherDlg::CBMLauncherDlg(CWnd* pParent /*=NULL*/)
 
 	m_hasUpdated = false;
 
-	strcpy_s(_updateServers[kServerType_Default].pszServerName, UpdateServer::iServerNameSize, "Default");
-	strcpy_s(_updateServers[kServerType_Default].pszServerURL, UpdateServer::iServerUrlSize, "http://updates.blademistress.com/");
+	strcpy_s(_updateServers[kServerType_Default].pszServerName, UpdateServer::iServerNameSize, "Normal");
+	strcpy_s(_updateServers[kServerType_Default].pszServerURL, UpdateServer::iServerUrlSize, "http://eunich.cochems.com/~zaphod/pupdatep/"); // need download url for their client fiels unzipped here
+	strcpy_s(_updateServers[kServerType_Test].pszServerName, UpdateServer::iServerNameSize, "Test");
+	strcpy_s(_updateServers[kServerType_Test].pszServerURL, UpdateServer::iServerUrlSize, "http://eunich.cochems.com/~blade/pupdatep/");
 }
 
 void CBMLauncherDlg::DoDataExchange(CDataExchange* pDX)
@@ -61,6 +63,7 @@ void CBMLauncherDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Text(pDX, IDC_EDIT_ACCOUNT, m_txtAccount);
 	DDV_MaxChars(pDX, m_txtAccount, 80);
 	DDX_Text(pDX, IDC_EDIT_PASSWORD, m_txtPassword);
+
 	//}}AFX_DATA_MAP
 	DDX_Control(pDX, IDC_EDIT_ACCOUNT, m_accountControl);
 	DDX_Control(pDX, IDC_EDIT_PASSWORD, m_passwordControl);
@@ -75,6 +78,7 @@ BEGIN_MESSAGE_MAP(CBMLauncherDlg, CDialog)
 	ON_BN_CLICKED(IDC_BUTTON_EXIT, OnButtonExit)
 	ON_BN_CLICKED(IDC_BUTTON_LAUNCH, OnButtonLaunch)
 	ON_BN_CLICKED(IDC_RADIO_SERVER_DEFAULT, OnRadioServerDefault)
+	ON_BN_CLICKED(IDC_RADIO_SERVER_TEST, OnRadioServerTest)
 	ON_BN_CLICKED(IDC_RADIO_FULLSCREEN, OnRadioFullscreen)
 	ON_BN_CLICKED(IDC_RADIO_WINDOWED, OnRadioWindowed)
 	ON_BN_CLICKED(IDC_RADIO_640, OnRadio640)
@@ -178,6 +182,7 @@ void CBMLauncherDlg::OnShowWindow(BOOL bShow, UINT nStatus)
 	m_rdoWindowType = config.getLastMode();
 	m_rdoResolution = config.getLastResolution();
 	m_txtAccount = config.getUserName();
+	m_txtIP = config.getIP();
 
 	UpdateData( FALSE );
 }
@@ -190,6 +195,7 @@ void CBMLauncherDlg::OnButtonExit()
 void CBMLauncherDlg::OnButtonLaunch() 
 {
 	char tmp[80];
+	char tmp2[80];
 	char* command = new char[256];
 	command[0] = '\0';
 
@@ -217,13 +223,15 @@ void CBMLauncherDlg::OnButtonLaunch()
 		return;
 	}
 
-	strcpy( tmp, (LPCSTR) m_txtAccount );
+	strcpy(tmp, (LPCSTR)m_txtAccount);
+	strcpy(tmp2, (LPCSTR)m_txtIP);
 
 	// Save data to config file
 	config.setLastServer( m_rdoServer );
 	config.setLastMode( m_rdoWindowType );
 	config.setLastResolution( m_rdoResolution );
-	config.setUserName( tmp );
+	config.setUserName(tmp);
+	config.setIP(tmp2);
 	config.SaveConfig();
 
 	command = strcat( command, _updateServers[m_rdoServer].pszServerName );
@@ -240,7 +248,8 @@ void CBMLauncherDlg::OnButtonLaunch()
 		args = strcat( args, " -Q" );
 
 	CString tmpstr( m_txtAccount );
-	CString tmpstr2( m_txtPassword );
+	CString tmpstr2(m_txtPassword);
+	CString tmpstr3(m_txtIP);
 	tmpstr.Replace( " ", "-" );
 	tmpstr2.Replace( " ", "-" );
 
@@ -248,10 +257,12 @@ void CBMLauncherDlg::OnButtonLaunch()
 	args = strcat( args, (LPCSTR)tmpstr );
 	args = strcat( args, " -P");
 	args = strcat( args, (LPCSTR)tmpstr2 );
+	args = strcat(args, " -");
 
-	if( m_rdoServer == kServerType_Default )
-		args = strcat( args, " -game.blademistress.com" );
-
+	if (m_rdoServer == kServerType_Default)
+		args = strcat(args, "bm.kicks-ass.org");
+	if (m_rdoServer == kServerType_Test)
+		args = strcat(args, "bm.kicks-ass.org");
 	char cCurrentPath[FILENAME_MAX];
 	_getcwd(cCurrentPath, sizeof(cCurrentPath));
 	strcat_s(cCurrentPath, FILENAME_MAX, "\\");
@@ -295,6 +306,7 @@ void CBMLauncherDlg::OnButtonUpdate()
 
 
 void CBMLauncherDlg::OnRadioServerDefault() { m_rdoServer = kServerType_Default; }
+void CBMLauncherDlg::OnRadioServerTest() { m_rdoServer = kServerType_Test; }
 
 void CBMLauncherDlg::OnRadioFullscreen() { m_rdoWindowType = 0; }
 void CBMLauncherDlg::OnRadioWindowed() { m_rdoWindowType = 1; }
@@ -343,10 +355,11 @@ void CBMLauncherDlg::OnMenuForum()
 
 void CBMLauncherDlg::OnMenuWebsite() 
 {
-	ShellExecute( NULL, "open", "http://www.blademistress.com", NULL, NULL, SW_SHOWNORMAL );		
+	ShellExecute( NULL, "open", "http://bm.kicks-ass.org", NULL, NULL, SW_SHOWNORMAL );		
 }
 
 void CBMLauncherDlg::OnMenuWiki() 
 {
-	ShellExecute( NULL, "open", "http://wiki.blademistress.com", NULL, NULL, SW_SHOWNORMAL );	
+	ShellExecute( NULL, "open", "http://bm.kicks-ass.org/dokuwiki/", NULL, NULL, SW_SHOWNORMAL );	
 }
+

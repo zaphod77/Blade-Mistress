@@ -9,6 +9,7 @@ private:
 	int			lastResolution;
 	int			lastMode;
 	char		userName[80];
+	char		saveIP[80];
 
 public:
 	LauncherConfig();	// constructor
@@ -20,11 +21,13 @@ public:
 	int getLastResolution();
 	int getLastMode();
 	char* getUserName();
+	char* getIP();
 
 	void setLastServer( int );
 	void setLastResolution( int );
 	void setLastMode( int );
-	void setUserName( char* );
+	void setUserName(char*);
+	void setIP(char*);
 };
 
 #endif

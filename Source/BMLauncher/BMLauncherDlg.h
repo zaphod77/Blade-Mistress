@@ -32,6 +32,7 @@ public:
 	int		m_rdoServer;
 	CString	m_txtAccount;
 	CString	m_txtPassword;
+	CString	m_txtIP;
 	//}}AFX_DATA
 
 	// ClassWizard generated virtual function overrides
@@ -55,6 +56,7 @@ protected:
 	afx_msg void OnButtonExit();
 	afx_msg void OnButtonLaunch();
 	afx_msg void OnRadioServerDefault();
+	afx_msg void OnRadioServerTest();
 	afx_msg void OnRadioFullscreen();
 	afx_msg void OnRadioWindowed();
 	afx_msg void OnRadio640();
