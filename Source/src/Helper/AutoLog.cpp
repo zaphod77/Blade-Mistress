@@ -56,7 +56,7 @@ void AutoLog::Start(char *appName)
 //*******************************************************************************
 void AutoLog::Append(void)
 {
-	char tempText[1024];
+//	char tempText[1024];
 
 	logEnabled = TRUE;
 

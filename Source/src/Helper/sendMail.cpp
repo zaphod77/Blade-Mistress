@@ -36,7 +36,7 @@ MapiMessage message =
 
 void SendMailMessage(char *address, char *text)
 {
-	/*
+/*
 	recipient.lpszAddress = address;
 
 	message.lpszNoteText = text;
@@ -81,5 +81,4 @@ void SendMailMessage(char *address, char *text)
 
 	 SetCurrentDirectory("c:\\work\\bbonline");
 	 */
-
 }

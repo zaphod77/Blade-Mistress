@@ -12,7 +12,7 @@
 
 struct NameRecord
 {
-	NameRecord() {next = NULL; };
+	NameRecord() { next = NULL; name[0] = NULL; };
 
 	NameRecord *next;
    char name[MAX_FILE_NAME_SIZE];
@@ -50,7 +50,7 @@ FileNameList *GetNameList(char *wildcard, char*path)
    FileNameList *ret = new FileNameList(index);
    for (int i = 0; i < index; i++)
 	{
-	  sprintf(ret->nameList[i].name,"%s%s",path,first->name);
+	  sprintf(ret->nameList[i].name,"%s\\%s",path,first->name);
 		NameRecord *nr = first;
 		first = nr->next;
 		delete nr;
