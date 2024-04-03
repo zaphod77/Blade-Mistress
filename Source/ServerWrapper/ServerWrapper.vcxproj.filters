@@ -246,6 +246,15 @@
     <ClCompile Include="..\src\Helper\PasswordHash.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\BBO-SChristmasQuest.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\BBO-SCTF.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\ArmyCustomNormal.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\Src\ArmyDead.h">
@@ -438,6 +447,15 @@
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\Helper\PasswordHash.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\BBO-SChristmasQuest.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\BBO-SCTF.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\ArmyCustomNormal.h">
       <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>

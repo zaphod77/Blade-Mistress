@@ -19,13 +19,13 @@
     <ConfigurationType>Application</ConfigurationType>
     <UseOfMfc>false</UseOfMfc>
     <CharacterSet>MultiByte</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v141</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseOfMfc>false</UseOfMfc>
     <CharacterSet>MultiByte</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v141</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -126,6 +126,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\src\ArmyCustomNormal.cpp" />
     <ClCompile Include="..\Src\ArmyDead.cpp">
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Disabled</Optimization>
       <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -252,6 +253,8 @@
       <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
+    <ClCompile Include="..\src\BBO-SChristmasQuest.cpp" />
+    <ClCompile Include="..\src\BBO-SCTF.cpp" />
     <ClCompile Include="..\Src\BBO-Sgen-dragons.cpp">
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Disabled</Optimization>
       <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -787,6 +790,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\src\ArmyCustomNormal.h" />
     <ClInclude Include="..\Src\ArmyDead.h" />
     <ClInclude Include="..\Src\ArmyDragonArchMage.h" />
     <ClInclude Include="..\Src\ArmyDragonChaplain.h" />
@@ -800,6 +804,8 @@
     <ClInclude Include="..\Src\BBO-Savatar.h" />
     <ClInclude Include="..\Src\BBO-Sbomb.h" />
     <ClInclude Include="..\Src\BBO-SChainQuest.h" />
+    <ClInclude Include="..\src\BBO-SChristmasQuest.h" />
+    <ClInclude Include="..\src\BBO-SCTF.h" />
     <ClInclude Include="..\Src\BBO-Sgenerator.h" />
     <ClInclude Include="..\Src\BBO-SgroundEffect.h" />
     <ClInclude Include="..\Src\BBO-SInvadeQuest.h" />

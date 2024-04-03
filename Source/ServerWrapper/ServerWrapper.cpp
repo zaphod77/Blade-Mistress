@@ -126,7 +126,7 @@ int APIENTRY WinMain(HINSTANCE hInstance,
  	// TODO: Place code here.
 	MSG msg;
 	HACCEL hAccelTable;
-
+	
 	// Initialize global strings
 	LoadString(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
 	LoadString(hInstance, IDC_SERVERWRAPPER, szWindowClass, MAX_LOADSTRING);
@@ -134,6 +134,8 @@ int APIENTRY WinMain(HINSTANCE hInstance,
 
 	WSAData wsaData;
 	WSAStartup(MAKEWORD(2, 2), &wsaData);
+
+	// Sleep(10000);
 
 #ifdef NO_IOCP
 	server = new BBOServer(FALSE);
@@ -153,9 +155,8 @@ int APIENTRY WinMain(HINSTANCE hInstance,
 	{
 		return FALSE;
 	}
-
 	hAccelTable = LoadAccelerators(hInstance, (LPCTSTR)IDC_SERVERWRAPPER);
-
+	srand(timeGetTime());
       // Enter the message loop
 //      MSG msg;
    ZeroMemory( &msg, sizeof(msg) );
@@ -172,7 +173,7 @@ int APIENTRY WinMain(HINSTANCE hInstance,
 			{
 			   server->Tick();
 				++cyclesCompleted;
-
+				Sleep(10);
 				if (0 == server->pleaseKillMe)
 					PostQuitMessage(0);
 			}
@@ -738,19 +739,23 @@ XX	sprintf(&(headerText[strlen(headerText)]),
    SelectObject(hdc, greenPen);
 	for (int i = 0; i < validRecordNum; ++i)
 	{
-      MoveToEx(hdc, rt.right-256 + recordArray[i].x/2*2, 
-			      rt.top+100 + recordArray[i].y/2*2, NULL);
-      LineTo  (hdc, rt.right-256 + recordArray[i].x/2*2, 
-			      rt.top+100 + recordArray[i].y/2*2+1);
+//		MoveToEx(hdc, rt.right - 256 + recordArray[i].x / 2 * 2,
+//			rt.top + 100 + recordArray[i].y / 2 * 2, NULL);
+//		LineTo(hdc, rt.right - 256 + recordArray[i].x / 2 * 2,
+//			rt.top + 100 + recordArray[i].y / 2 * 2 + 1);
+		MoveToEx(hdc, rt.right - recordArray[i].x / 2 * 2,
+			rt.top + 100 + recordArray[i].y / 2 * 2, NULL);
+		LineTo(hdc, rt.right - recordArray[i].x / 2 * 2,
+			rt.top + 100 + recordArray[i].y / 2 * 2 + 1);
 	}
 
 	// draw town dots
    SelectObject(hdc, bluePen);
 	for (int i = 0; i < 24; ++i)
 	{
-      MoveToEx(hdc, rt.right-256 + townList[i].x/2*2, 
+      MoveToEx(hdc, rt.right - townList[i].x/2*2, 
 			      rt.top+100 + townList[i].y/2*2-1, NULL);
-      LineTo  (hdc, rt.right-256 + townList[i].x/2*2, 
+      LineTo  (hdc, rt.right - townList[i].x/2*2, 
 			      rt.top+100 + townList[i].y/2*2);
 	}
 
@@ -766,9 +771,9 @@ XX	sprintf(&(headerText[strlen(headerText)]),
 			{
 				if (SMOB_MONSTER == curMob->WhatAmI())
 				{
-				   MoveToEx(hdc, rt.right-256 + curMob->cellX/2*2-1, 
+				   MoveToEx(hdc, rt.right - curMob->cellX/2*2+1, 
 							   rt.top+100 + curMob->cellY/2*2-1, NULL);
-			      LineTo  (hdc, rt.right-256 + curMob->cellX/2*2, 
+			      LineTo  (hdc, rt.right - curMob->cellX/2*2, 
 							   rt.top+100 + curMob->cellY/2*2);
 				}
 
