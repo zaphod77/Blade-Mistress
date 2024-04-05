@@ -20479,7 +20479,18 @@ void BBOServer::CreateTreeQuest(Quest *quest, BBOSAvatar *curAvatar,
             allDone = TRUE;
 
             curAvatar->AnnounceDisappearing(sp, SPECIAL_APP_DUNGEON);
-
+            // and if i have a monster, tell people it's going away too
+	    if (curAvatar->controlledMonster)
+	    {
+		// we need to dissapear it from people's screen.
+		MessMonsterDeath messMD;
+		messMD.mobID = (unsigned long)curAvatar->controlledMonster;
+		sp->SendToEveryoneNearBut(0, curAvatar->controlledMonster->cellX, curAvatar->controlledMonster->cellY,
+			sizeof(messMD), (void *)&messMD); // 
+		// remove it from old map
+		sp->mobList->Remove(curAvatar->controlledMonster);
+	    }
+	    
             // tell my client I'm entering the dungeon
             MessChangeMap changeMap;
             changeMap.dungeonID = (long) dp;
@@ -20488,7 +20499,6 @@ void BBOServer::CreateTreeQuest(Quest *quest, BBOSAvatar *curAvatar,
             changeMap.sizeX   = dp->width;
             changeMap.sizeY   = dp->height;
             changeMap.flags   = MESS_CHANGE_NOTHING;
-            lserver->SendMsg(sizeof(changeMap),(void *)&changeMap, 0, &tempReceiptList);
 
             // move me to my new SharedSpace
             sp->avatars->Remove(curAvatar);
@@ -20496,9 +20506,24 @@ void BBOServer::CreateTreeQuest(Quest *quest, BBOSAvatar *curAvatar,
 
             curAvatar->cellX = 0;
             curAvatar->cellY = 0;
+	    if (curAvatar->controlledMonster) // if they had a monster
+	    {
+		// then it needs ot have it's coords updated, and be added to new map
+		curAvatar->controlledMonster->cellX = curAvatar->controlledMonster->targetCellX = curAvatar->cellX;
+		curAvatar->controlledMonster->cellY = curAvatar->controlledMonster->targetCellY = curAvatar->cellY;
+		dp->mobList->Add(curAvatar->controlledMonster);
+	    }
+	    // NOW send the changemap packet.
+            lserver->SendMsg(sizeof(changeMap),(void *)&changeMap, 0, &tempReceiptList);
 
             // tell everyone about my arrival
             curAvatar->IntroduceMyself(dp, SPECIAL_APP_DUNGEON);
+            // and introduce the monster if i have one
+	    if (curAvatar->controlledMonster) // if they had a monster
+	    {
+		// monster announces itself too
+		curAvatar->controlledMonster->AnnounceMyselfCustom(dp);
+	    }
 
             // tell this player about everyone else around
             curAvatar->UpdateClient(dp, TRUE);
