@@ -3560,7 +3560,10 @@ void BBOSMonster::BMVLordAttack(SharedSpace *ss) // and also butterfiles
 			{
 				chance = 0; // miss myself. :)
 			}
-
+			if (!curMonster->controllingAvatar->PVPEnabled)
+			{
+				chance = 0; // miss bestmaster pet if not pvp
+			}
 			//    2. if chance > 20, hit was successful
 			if (chance > 20)
 			{
@@ -3771,7 +3774,11 @@ void BBOSMonster::BMUnicornAttack(SharedSpace *ss) // and also butterfiles
 			{
 				chance = 0; // miss myself. :)
 			}
-						 //    2. if chance > 20, hit was successful
+			if (!curMonster->controllingAvatar->PVPEnabled)
+			{
+				chance = 0; // miss bestmaster pet if not pvp
+			}
+			//    2. if chance > 20, hit was successful
 			if (chance > 20)
 			{
 				//    3. damage = damage
