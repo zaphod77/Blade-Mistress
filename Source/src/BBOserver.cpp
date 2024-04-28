@@ -2071,8 +2071,8 @@ void BBOServer::Tick(void)
                         BBOSMob *curMob2 = (BBOSMob *) sp->avatars->First();
                         while (curMob2)
                         {
-                            if ((curMob2->WhatAmI()==SMOB_AVATAR) && abs(curMob->cellX - curMob2->cellX) < 2 &&
-                                abs(curMob->cellY - curMob2->cellY) < 2 )
+                            if ((curMob2->WhatAmI()==SMOB_AVATAR) && ((abs(curMob->cellX - curMob2->cellX) < 2 &&
+                                abs(curMob->cellY - curMob2->cellY) < 2 ) || ((((BBOSAvatar*)curMob2)->BeastStat()>9)&& (SPACE_DUNGEON==sp->WhatAmI()))))
                             {
                                 BBOSAvatar *curAvatar2 = (BBOSAvatar *) curMob2;
 
@@ -2119,8 +2119,46 @@ void BBOServer::Tick(void)
                                         sp->avatars->Find(curAvatar2);
                                     }
                                 }
+								// killed a vagabond? remove all the resumes!
+								// remove all earthkey resumes. 
+								// destroy resumes from workbench
+								if (((BBOSMonster*)curMob)->isVagabond) // lolwtf
+								{
+									InventoryObject* io;
+									io = (InventoryObject*)curAvatar2->charInfoArray[curAvatar2->curCharacterIndex].workbench->objects.First();
+									while (io)
+									{
+										if (INVOBJ_EARTHKEY_RESUME == io->type)
+										{
+											curAvatar2->charInfoArray[curAvatar2->curCharacterIndex].workbench->objects.Remove(io);
+											delete io;
+										}
+										io = (InventoryObject*)curAvatar2->charInfoArray[curAvatar2->curCharacterIndex].workbench->objects.Next();
+									}
+									// destroy resumes from inventory
+									io = (InventoryObject*)curAvatar2->charInfoArray[curAvatar2->curCharacterIndex].inventory->objects.First();
+									while (io)
+									{
+										if (INVOBJ_EARTHKEY_RESUME == io->type)
+										{
+											curAvatar2->charInfoArray[curAvatar2->curCharacterIndex].inventory->objects.Remove(io);
+											delete io;
+										}
+										io = (InventoryObject*)curAvatar2->charInfoArray[curAvatar2->curCharacterIndex].inventory->objects.Next();
+									}
+									// destroy resumes from wielded area
+									io = (InventoryObject*)curAvatar2->charInfoArray[curAvatar2->curCharacterIndex].wield->objects.First();
+									while (io)
+									{
+										if (INVOBJ_EARTHKEY_RESUME == io->type)
+										{
+											curAvatar2->charInfoArray[curAvatar2->curCharacterIndex].wield->objects.Remove(io);
+											delete io;
+										}
+										io = (InventoryObject*)curAvatar2->charInfoArray[curAvatar2->curCharacterIndex].wield->objects.Next();
+									}
 
-
+								}
                             }
 
                             curMob2 = (BBOSMob *) sp->avatars->Next();
@@ -11507,26 +11545,6 @@ void BBOServer::HandleChatLine(int fromSocket, char *chatText)
 				}
 			}
 			}
-			else if (IsSame(&(chatText[argPoint]), "/petstats"))
-			{
-			if (curAvatar->controlledMonster)
-			{
-				SharedSpace *sp;
-
-				BBOSMonster * theMonster = FindMonster(curAvatar->controlledMonster, &sp);
-				if (theMonster)
-				{
-					sprintf_s(tempText, "health %d/%d, dam %d, toHit %d, def %d, dropVal %d resist %1.2f, regen %d",
-						theMonster->health, theMonster->maxHealth, theMonster->damageDone,
-						theMonster->toHit, theMonster->defense, theMonster->dropAmount,
-						theMonster->magicResistance, theMonster->healAmountPerSecond);
-					CopyStringSafely(tempText, 1024, infoText.text, MESSINFOTEXTLEN);
-					lserver->SendMsg(sizeof(infoText), (void *)&infoText, 0, &tempReceiptList);
-					return;
-				}
-			}
-			}
-			//***************************************
 			else if (IsSame(&(chatText[argPoint]), "/freepet"))
 			{
 				argPoint = NextWord(chatText, &linePoint);
@@ -20480,16 +20498,16 @@ void BBOServer::CreateTreeQuest(Quest *quest, BBOSAvatar *curAvatar,
 
             curAvatar->AnnounceDisappearing(sp, SPECIAL_APP_DUNGEON);
             // and if i have a monster, tell people it's going away too
-	    if (curAvatar->controlledMonster)
-	    {
-		// we need to dissapear it from people's screen.
-		MessMonsterDeath messMD;
-		messMD.mobID = (unsigned long)curAvatar->controlledMonster;
-		sp->SendToEveryoneNearBut(0, curAvatar->controlledMonster->cellX, curAvatar->controlledMonster->cellY,
-			sizeof(messMD), (void *)&messMD); // 
-		// remove it from old map
-		sp->mobList->Remove(curAvatar->controlledMonster);
-	    }
+			if (curAvatar->controlledMonster)
+			{
+				// we need to dissapear it from people's screen.
+				MessMonsterDeath messMD;
+				messMD.mobID = (unsigned long)curAvatar->controlledMonster;
+				sp->SendToEveryoneNearBut(0, curAvatar->controlledMonster->cellX, curAvatar->controlledMonster->cellY,
+					sizeof(messMD), (void*)&messMD); // 
+				// remove it from old map
+				sp->mobList->Remove(curAvatar->controlledMonster);
+			}
 	    
             // tell my client I'm entering the dungeon
             MessChangeMap changeMap;
@@ -20506,24 +20524,24 @@ void BBOServer::CreateTreeQuest(Quest *quest, BBOSAvatar *curAvatar,
 
             curAvatar->cellX = 0;
             curAvatar->cellY = 0;
-	    if (curAvatar->controlledMonster) // if they had a monster
-	    {
-		// then it needs ot have it's coords updated, and be added to new map
-		curAvatar->controlledMonster->cellX = curAvatar->controlledMonster->targetCellX = curAvatar->cellX;
-		curAvatar->controlledMonster->cellY = curAvatar->controlledMonster->targetCellY = curAvatar->cellY;
-		dp->mobList->Add(curAvatar->controlledMonster);
-	    }
-	    // NOW send the changemap packet.
+			if (curAvatar->controlledMonster) // if they had a monster
+			{
+				// then it needs ot have it's coords updated, and be added to new map
+				curAvatar->controlledMonster->cellX = curAvatar->controlledMonster->targetCellX = curAvatar->cellX;
+				curAvatar->controlledMonster->cellY = curAvatar->controlledMonster->targetCellY = curAvatar->cellY;
+				dp->mobList->Add(curAvatar->controlledMonster);
+			}
+			// NOW send the changemap packet.
             lserver->SendMsg(sizeof(changeMap),(void *)&changeMap, 0, &tempReceiptList);
 
             // tell everyone about my arrival
             curAvatar->IntroduceMyself(dp, SPECIAL_APP_DUNGEON);
             // and introduce the monster if i have one
-	    if (curAvatar->controlledMonster) // if they had a monster
-	    {
-		// monster announces itself too
-		curAvatar->controlledMonster->AnnounceMyselfCustom(dp);
-	    }
+			if (curAvatar->controlledMonster) // if they had a monster
+			{
+				// monster announces itself too
+				curAvatar->controlledMonster->AnnounceMyselfCustom(dp);
+			}
 
             // tell this player about everyone else around
             curAvatar->UpdateClient(dp, TRUE);
