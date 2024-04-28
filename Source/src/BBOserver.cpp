@@ -2071,8 +2071,9 @@ void BBOServer::Tick(void)
                         BBOSMob *curMob2 = (BBOSMob *) sp->avatars->First();
                         while (curMob2)
                         {
-                            if ((curMob2->WhatAmI()==SMOB_AVATAR) && ((abs(curMob->cellX - curMob2->cellX) < 2 &&
-                                abs(curMob->cellY - curMob2->cellY) < 2 ) || ((((BBOSAvatar*)curMob2)->BeastStat()>9)&& (SPACE_DUNGEON==sp->WhatAmI()))))
+                            if ((curMob2->WhatAmI()==SMOB_AVATAR) 
+								&& ((abs(curMob->cellX - curMob2->cellX) < 2 && abs(curMob->cellY - curMob2->cellY) < 2 ) //near the monster
+									|| ((((BBOSAvatar*)curMob2)->BeastStat()>9)&& (SPACE_DUNGEON==sp->WhatAmI()))))       // OR a Beastmaster in a dungeon
                             {
                                 BBOSAvatar *curAvatar2 = (BBOSAvatar *) curMob2;
 
