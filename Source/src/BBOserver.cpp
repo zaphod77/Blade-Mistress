@@ -7002,7 +7002,7 @@ void BBOServer::HandleMessages(void)
 												if (avatarcount>1) // too many people, don't give you a resume. one means just you, so one is ok.
 													HandleEarthKeyResumeUse(curAvatar, iek, ss); // so use version which does not reate a replacement.
 												else // if all these pass, you get a free second resume
-													HandleEarthKeyUse(curAvatar, iek, ss); // treat resume item as normal earthkey, and replace it.
+													HandleEarthKeyUse(curAvatar, iek, ss,true); // treat resume item as normal earthkey, and replace it, but no vagabond spawns.
 											}
 										}
 									}
@@ -21323,7 +21323,7 @@ void BBOServer::HandleEarthKeyResumeUse(BBOSAvatar *ca, InvEarthKey *iek, Shared
 
 
 }
-void BBOServer::HandleEarthKeyUse(BBOSAvatar *ca, InvEarthKey *iek, SharedSpace *ss)
+void BBOServer::HandleEarthKeyUse(BBOSAvatar* ca, InvEarthKey* iek, SharedSpace* ss,bool NoVagabond)
 {
 	char tempText[1024];
 	std::vector<TagID> tempReceiptList;
@@ -21556,7 +21556,8 @@ void BBOServer::HandleEarthKeyUse(BBOSAvatar *ca, InvEarthKey *iek, SharedSpace 
 	++dm->MonsterCount;
 
 	// sometimes add a Vagabond monster
-	if (!(rand() % 3))
+   
+	if ((!(rand() % 3)) && (!(NoVagabond))) // not if it's a spirit skiller.
 	{
 		int vagIndex = t + 1;
 

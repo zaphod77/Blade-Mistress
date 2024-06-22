@@ -132,7 +132,7 @@ public:
 	int  ResolveTreeQuests(BBOSAvatar *curAvatar, 
 											  SharedSpace *sp,BBOSTree *t);
 	void CreateDemonPrince(SharedSpace *ss, BBOSAvatar *curAvatar, QuestPart *qt, char *tempText2);
-	void HandleEarthKeyUse(BBOSAvatar *ca, InvEarthKey *iek, SharedSpace *ss);
+	void HandleEarthKeyUse(BBOSAvatar* ca, InvEarthKey* iek, SharedSpace* ss, bool NoVagabond = false);
 	void HandleEarthKeyResumeUse(BBOSAvatar *ca, InvEarthKey *iek, SharedSpace *ss);
 	void HandleDoomKeyUse(BBOSAvatar *ca, InvDoomKey *iek, SharedSpace *ss);
 
